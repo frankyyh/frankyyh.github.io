@@ -71,11 +71,6 @@
     </div>
     <div style="font-family:'Space Mono'; position:absolute; left:-9999px;">.</div>
     <div id="canvas-container" style="display: none;"></div>
-    <div id="ui">
-        <div>FPS: <span id="fps">0</span></div>
-        <div style="margin-top: 5px;">Position: <span id="position">0, 0, 0</span></div>
-        <div style="margin-top: 5px;">Rotation: <span id="rotation">0, 0</span></div>
-    </div>
     <div id="instructions">
         <div><strong>WASD</strong> - Move | <strong>Mouse</strong> - Look Around | <strong>Space</strong> - Jump | <strong>Shift</strong> - Run</div>
         <div style="margin-top: 5px; font-size: 12px; opacity: 0.8;">Click to lock mouse pointer</div>
@@ -3442,17 +3437,6 @@
         const keys = {};
         
         const onKeyDown = (event) => {
-            // Debug mode: Press E to enter movement mode from any state
-            if (event.code === 'KeyE') {
-                if (gameState === 'dialogue') {
-                    gameState = 'playing';
-                    canvasFadeOutStartTime = performance.now(); // Start fade out animation
-                    renderer.domElement.requestPointerLock();
-                    event.preventDefault();
-                    return;
-                }
-            }
-            
             if (gameState !== 'playing') return;
             keys[event.code] = true;
             
@@ -3517,8 +3501,6 @@
 
         // Animation loop
         let lastTime = performance.now();
-        let frameCount = 0;
-        let lastFpsUpdate = performance.now();
 
         const animate = () => {
             requestAnimationFrame(animate);
@@ -3526,14 +3508,6 @@
             const time = performance.now();
             const delta = (time - lastTime) / 1000;
             lastTime = time;
-
-            // Update FPS counter
-            frameCount++;
-            if (time - lastFpsUpdate > 1000) {
-                document.getElementById('fps').textContent = frameCount;
-                frameCount = 0;
-                lastFpsUpdate = time;
-            }
 
             // Apply rotation
             const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
@@ -3591,16 +3565,6 @@
             checkCollision(newPosition);
             camera.position.copy(newPosition);
             
-            // Update position display
-            const pos = camera.position;
-            document.getElementById('position').textContent = 
-                `${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}`;
-            // Update rotation display (pitch, yaw in degrees)
-            const pitchDeg = (pitch * 180 / Math.PI).toFixed(1);
-            const yawDeg = (yaw * 180 / Math.PI).toFixed(1);
-            document.getElementById('rotation').textContent = `pitch: ${pitchDeg}°, yaw: ${yawDeg}°`;
-
-
             // Update typewriter animation
             if (window._typewriterUpdate) window._typewriterUpdate(time);
             
