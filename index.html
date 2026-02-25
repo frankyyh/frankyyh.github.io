@@ -3604,7 +3604,7 @@
                 window._updateRightCanvas(time);
             }
             
-            // Update eye tracking (eyes follow player)
+            // Update eye tracking (eyes follow player - only horizontal movement)
             if (eyePlane && eyeBasePosition && camera && facePlane) {
                 // Get face world position
                 const faceWorldPos = new THREE.Vector3();
@@ -3617,21 +3617,18 @@
                 const direction = new THREE.Vector3().subVectors(camPos, faceWorldPos);
                 
                 // Convert to local space of the wall (west wall is rotated 90 degrees)
-                // For west wall: world X -> local Z, world Z -> local -X
-                const localOffset = new THREE.Vector3();
-                localOffset.x = direction.z * 0.1; // Player's Z movement affects eye X (left/right on wall)
-                localOffset.y = direction.y * 0.1; // Player's Y movement affects eye Y (up/down)
-                localOffset.z = -direction.x * 0.1; // Player's X movement affects eye Z (but we'll ignore this)
+                // For west wall: world Z -> local X (left/right on wall)
+                // Only use horizontal movement (X axis), ignore Y and Z
+                const horizontalOffset = direction.z * 0.1; // Player's Z movement affects eye X (left/right on wall)
                 
                 // Clamp offset to max distance
                 const maxOffset = 0.3;
-                localOffset.x = Math.max(-maxOffset, Math.min(maxOffset, localOffset.x));
-                localOffset.y = Math.max(-maxOffset, Math.min(maxOffset, localOffset.y));
+                const clampedOffset = Math.max(-maxOffset, Math.min(maxOffset, horizontalOffset));
                 
-                // Apply offset to eye position (only X and Y, keep Z same)
-                eyePlane.position.x = eyeBasePosition.x + localOffset.x;
-                eyePlane.position.y = eyeBasePosition.y + localOffset.y;
-                eyePlane.position.z = eyeBasePosition.z;
+                // Apply offset to eye position (only X axis, keep Y and Z same as base)
+                eyePlane.position.x = eyeBasePosition.x + clampedOffset;
+                eyePlane.position.y = eyeBasePosition.y; // Always same as base
+                eyePlane.position.z = eyeBasePosition.z; // Always same as base
             }
             
             // Check if closing dialogue is done, wait 3 seconds then enter movement mode
