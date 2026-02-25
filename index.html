@@ -297,7 +297,7 @@
                 for (let x = 0; x < width; x++) {
                     const idx = (y * width + x) * 4;
                     const gray = data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114;
-                    const newColor = gray > 127 ? 255 : 0;
+                    const newColor = gray > 127 ? 0 : 255; // Inverted: dark becomes white, light becomes black
                     const error = gray - newColor;
                     
                     data[idx] = newColor;
@@ -328,9 +328,11 @@
                 width = floorSize,
                 height = wallHeight,
                 enableBlink = false,
-                enableBreath = true,
+                enableBreath = false,
                 enableScanlines = false,
                 enableNoise = false,
+                enableDitherShake = false,  // Random movement of dithering dots
+                ditherScale = 0.5,  // Scale factor for larger dithering dots (0.5 = 2x larger dots)
                 eyeRegion = {
                     left: { x: 0.3, y: 0.4, width: 0.15, height: 0.1 },
                     right: { x: 0.55, y: 0.4, width: 0.15, height: 0.1 }
@@ -347,15 +349,30 @@
             
             img.onload = function() {
                 console.log('Image loaded successfully:', imagePath);
+                
+                // Create a smaller canvas for dithering (to make dots larger)
+                const smallCanvas = document.createElement('canvas');
+                smallCanvas.width = Math.floor(img.width * ditherScale);
+                smallCanvas.height = Math.floor(img.height * ditherScale);
+                const smallCtx = smallCanvas.getContext('2d');
+                
+                // Draw image scaled down
+                smallCtx.drawImage(img, 0, 0, smallCanvas.width, smallCanvas.height);
+                
+                // Apply dithering on smaller image (creates larger dots)
+                const imageData = smallCtx.getImageData(0, 0, smallCanvas.width, smallCanvas.height);
+                const ditheredData = applyFloydSteinbergDithering(imageData);
+                smallCtx.putImageData(ditheredData, 0, 0);
+                
+                // Create final canvas at original size and scale up the dithered image
                 const canvas = document.createElement('canvas');
                 canvas.width = img.width;
                 canvas.height = img.height;
                 const ctx = canvas.getContext('2d');
+                ctx.imageSmoothingEnabled = false; // Use nearest neighbor for pixelated look
                 
-                ctx.drawImage(img, 0, 0);
-                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                const ditheredData = applyFloydSteinbergDithering(imageData);
-                ctx.putImageData(ditheredData, 0, 0);
+                // Scale up the dithered image (this makes the dots larger and more visible)
+                ctx.drawImage(smallCanvas, 0, 0, canvas.width, canvas.height);
                 
                 const originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                 
@@ -398,9 +415,156 @@
                 let lastBlinkTime = 0;
                 const baseScale = 1.0;
                 
+                // Dither shake animation state
+                let ditherShakeState = 'rest'; // 'rest' | 'shaking' | 'returning'
+                let ditherShakeTimer = 0;
+                let ditherShakeStartTime = performance.now();
+                const ditherShakeDuration = 2000; // 2 seconds of shaking
+                const ditherShakeRestDuration = 3000; // 3 seconds of rest
+                const ditherShakeReturnDuration = 500; // 0.5 seconds to return
+                let shuffledPixels = []; // Array to store pixel positions that are being shuffled
+                let originalPixelPositions = []; // Store original positions
+                
                 function updateAnimation(time) {
                     let needsUpdate = false;
                     ctx.putImageData(originalImageData, 0, 0);
+                    
+                    // Dither shake animation
+                    if (enableDitherShake) {
+                        const now = time * 0.001; // Convert to seconds
+                        const elapsed = (time - ditherShakeStartTime) * 0.001;
+                        
+                        if (ditherShakeState === 'rest') {
+                            // Wait for rest duration, then start shaking
+                            if (elapsed >= ditherShakeRestDuration / 1000) {
+                                ditherShakeState = 'shaking';
+                                ditherShakeStartTime = time;
+                                ditherShakeTimer = 0;
+                                
+                                // Prepare shuffled pixels (select random pixels to move)
+                                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                                const data = imageData.data;
+                                shuffledPixels = [];
+                                originalPixelPositions = [];
+                                
+                                // Select random pixels (about 5-10% of all pixels)
+                                const pixelCount = canvas.width * canvas.height;
+                                const shuffleCount = Math.floor(pixelCount * 0.07);
+                                
+                                for (let i = 0; i < shuffleCount; i++) {
+                                    const x = Math.floor(Math.random() * canvas.width);
+                                    const y = Math.floor(Math.random() * canvas.height);
+                                    const idx = (y * canvas.width + x) * 4;
+                                    
+                                    // Only shuffle black or white pixels (not transparent)
+                                    if (data[idx + 3] > 0) {
+                                        shuffledPixels.push({
+                                            x: x,
+                                            y: y,
+                                            idx: idx,
+                                            r: data[idx],
+                                            g: data[idx + 1],
+                                            b: data[idx + 2],
+                                            a: data[idx + 3]
+                                        });
+                                        originalPixelPositions.push({ x: x, y: y });
+                                    }
+                                }
+                            }
+                        } else if (ditherShakeState === 'shaking') {
+                            // Randomly move pixels around
+                            ditherShakeTimer += 0.016; // ~60fps
+                            
+                            if (ditherShakeTimer * 1000 >= ditherShakeDuration) {
+                                // Time to return
+                                ditherShakeState = 'returning';
+                                ditherShakeStartTime = time;
+                                ditherShakeTimer = 0;
+                            } else {
+                                // Shake pixels
+                                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                                const data = imageData.data;
+                                
+                                // Clear original positions
+                                shuffledPixels.forEach(pixel => {
+                                    const idx = pixel.idx;
+                                    data[idx] = 0;
+                                    data[idx + 1] = 0;
+                                    data[idx + 2] = 0;
+                                    data[idx + 3] = 0;
+                                });
+                                
+                                // Place pixels at random nearby positions
+                                shuffledPixels.forEach((pixel, i) => {
+                                    const maxOffset = 3; // Maximum pixels to move
+                                    const offsetX = Math.floor((Math.random() - 0.5) * maxOffset * 2);
+                                    const offsetY = Math.floor((Math.random() - 0.5) * maxOffset * 2);
+                                    const newX = Math.max(0, Math.min(canvas.width - 1, pixel.x + offsetX));
+                                    const newY = Math.max(0, Math.min(canvas.height - 1, pixel.y + offsetY));
+                                    const newIdx = (newY * canvas.width + newX) * 4;
+                                    
+                                    // Update pixel position for return animation
+                                    pixel.x = newX;
+                                    pixel.y = newY;
+                                    
+                                    data[newIdx] = pixel.r;
+                                    data[newIdx + 1] = pixel.g;
+                                    data[newIdx + 2] = pixel.b;
+                                    data[newIdx + 3] = pixel.a;
+                                });
+                                
+                                ctx.putImageData(imageData, 0, 0);
+                                needsUpdate = true;
+                            }
+                        } else if (ditherShakeState === 'returning') {
+                            // Return pixels to original positions
+                            ditherShakeTimer += 0.016;
+                            const progress = Math.min(ditherShakeTimer * 1000 / ditherShakeReturnDuration, 1);
+                            
+                            if (progress >= 1) {
+                                // Return complete, go back to rest
+                                ditherShakeState = 'rest';
+                                ditherShakeStartTime = time;
+                                ditherShakeTimer = 0;
+                                shuffledPixels = [];
+                                originalPixelPositions = [];
+                            } else {
+                                // Interpolate positions back
+                                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                                const data = imageData.data;
+                                
+                                // Clear all shuffled pixels
+                                shuffledPixels.forEach(pixel => {
+                                    const idx = pixel.idx;
+                                    data[idx] = 0;
+                                    data[idx + 1] = 0;
+                                    data[idx + 2] = 0;
+                                    data[idx + 3] = 0;
+                                });
+                                
+                                // Place pixels interpolating back to original positions
+                                shuffledPixels.forEach((pixel, i) => {
+                                    const orig = originalPixelPositions[i];
+                                    const currentX = pixel.x;
+                                    const currentY = pixel.y;
+                                    const targetX = orig.x;
+                                    const targetY = orig.y;
+                                    
+                                    const x = Math.floor(currentX + (targetX - currentX) * progress);
+                                    const y = Math.floor(currentY + (targetY - currentY) * progress);
+                                    const idx = (y * canvas.width + x) * 4;
+                                    
+                                    data[idx] = pixel.r;
+                                    data[idx + 1] = pixel.g;
+                                    data[idx + 2] = pixel.b;
+                                    data[idx + 3] = pixel.a;
+                                });
+                                
+                                ctx.putImageData(imageData, 0, 0);
+                                needsUpdate = true;
+                            }
+                        }
+                    }
                     
                     if (enableBlink) {
                         const now = time * 0.001;
@@ -526,9 +690,10 @@
         // Load image to left wall (west) - adjust path and eye region as needed
         loadAnimatedDitheredImageToWall('images/face.png', 'west', {
             enableBlink: false,  // Blink disabled as requested
-            enableBreath: true,
+            enableBreath: false,  // Breath disabled as requested
             enableScanlines: false,
             enableNoise: false,
+            enableDitherShake: true,  // Enable random dithering dot movement
             eyeRegion: {
                 left: { x: 0.3, y: 0.4, width: 0.15, height: 0.1 },
                 right: { x: 0.55, y: 0.4, width: 0.15, height: 0.1 }
