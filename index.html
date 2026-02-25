@@ -447,11 +447,11 @@
                 
                 scene.add(eyePlane);
                 
-                // Store base position for eye tracking
+                // Store base position for eye tracking (use face position as base)
                 eyeBasePosition = {
-                    x: eyePlane.position.x,
-                    y: eyePlane.position.y,
-                    z: eyePlane.position.z
+                    x: facePlane.position.x,
+                    y: facePlane.position.y,
+                    z: facePlane.position.z + 0.01 // Same as eyePlane z
                 };
                 
                 console.log('Face and eyes loaded successfully');
@@ -3606,6 +3606,11 @@
             
             // Update eye tracking (eyes follow player - only horizontal movement)
             if (eyePlane && eyeBasePosition && camera && facePlane) {
+                // Always sync position with face first (except z offset)
+                eyePlane.position.x = facePlane.position.x;
+                eyePlane.position.y = facePlane.position.y;
+                eyePlane.position.z = facePlane.position.z + 0.01; // Slightly in front
+                
                 // Get face world position
                 const faceWorldPos = new THREE.Vector3();
                 facePlane.getWorldPosition(faceWorldPos);
@@ -3625,10 +3630,8 @@
                 const maxOffset = 0.3;
                 const clampedOffset = Math.max(-maxOffset, Math.min(maxOffset, horizontalOffset));
                 
-                // Apply offset to eye position (only X axis, keep Y and Z same as base)
-                eyePlane.position.x = eyeBasePosition.x + clampedOffset;
-                eyePlane.position.y = eyeBasePosition.y; // Always same as base
-                eyePlane.position.z = eyeBasePosition.z; // Always same as base
+                // Apply horizontal offset only (keep Y and Z aligned with face)
+                eyePlane.position.x += clampedOffset;
             }
             
             // Check if closing dialogue is done, wait 3 seconds then enter movement mode
