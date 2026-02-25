@@ -408,7 +408,7 @@
         // Load face image to left wall (west)
         const faceImg = new Image();
         faceImg.onload = function() {
-            const texture = new THREE.TextureLoader().load('images/face.png');
+            const texture = new THREE.TextureLoader().load('images/face.png?v=2');
             texture.minFilter = THREE.LinearFilter;
             texture.magFilter = THREE.LinearFilter;
             
@@ -461,7 +461,7 @@
             };
             eyeImg.src = 'images/eye.png';
         };
-        faceImg.src = 'images/face.png';
+        faceImg.src = 'images/face.png?v=2';
 
         // ---- Draw all room edges as 3D cylinders (thick lines) ----
         const edgeMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
