@@ -1984,9 +1984,9 @@
                     }
                 }
                 
-                // Check if right canvas finished line 13, wait 1 second then start hiring dialogue
+                // Check if right canvas finished pause line ("Seriously, thank you"), wait 1 second then start hiring dialogue
                 if (phase === 'final_done' && window._rightFinalLine13Done && hiringLastCharTime < 0) {
-                    // Check if 1 second has passed since right canvas paused at line 13
+                    // Check if 1 second has passed since right canvas paused
                     if (window._rightPausedAtLine13Time >= 0 && time >= window._rightPausedAtLine13Time + 1000) {
                         phase = 'hiring_typing';
                         hiringCurrentLine = 0;
@@ -2353,7 +2353,7 @@
             // Right canvas typing state
             let rightPhase = 'idle'; // 'idle' | 'typing' | 'options1' | 'response1' | 'options2' | 'final' | 'paused' | 'done'
             window._rightPhase = rightPhase; // Expose for input handler
-            let rightPausedAtLine13Time = -1; // Time when line 13 finished (for 1 second delay before left canvas starts)
+            let rightPausedAtLine13Time = -1; // Time when pause line finished (for 1 second delay before left canvas starts)
             const rightTypingLines = [
                 "Come on.",
                 "Don't listen to all the crap he said on the left.",
@@ -2413,9 +2413,8 @@
                 "Also, most people would call this an artist statement.",
                 "I feel weird calling myself an artist, and I definitely don't feel qualified enough to make a statement.",
                 "So I'm just trying to make this as honest as possible, and hopefully not too boring.",
-                "One last thing: thank you for reading this far, or trying my games.",
+                "Thank you for reading this far.",
                 "Seriously, thank you.",
-                "I hope things work out for you, in whatever future you end up in.",
                 "Oh shit, wait…",
                 "If you're a recruiter, PLEASE ignore everything we just said.",
                 "None of it is true.",
@@ -2428,7 +2427,7 @@
                 "See you later :)"
             ];
             // Dynamically find line indices to avoid hardcoding
-            const rightFinalPauseLineIndex = rightFinalLines.findIndex(line => line.includes("in whatever future you end up in"));
+            const rightFinalPauseLineIndex = rightFinalLines.findIndex(line => line.includes("Seriously, thank you"));
             const rightFinalLinkLineIndex = rightFinalLines.findIndex(line => line.includes("The link is right here"));
             const rightFinalEmailLineIndex = rightFinalLines.findIndex(line => line.includes("Here's my email:"));
             
@@ -3060,7 +3059,7 @@
                                     rightScrollOffset = Math.min(rightScrollOffset, rightMaxScrollOffset);
                                 }
                             } else {
-                                // Check if we just finished the pause line ("in whatever future you end up in")
+                                // Check if we just finished the pause line ("Seriously, thank you")
                                 if (rightFinalCurrentLine === rightFinalPauseLineIndex) {
                                     // Pause right canvas typing
                                     rightPhase = 'paused';
@@ -3070,7 +3069,7 @@
                                     window._rightPausedAtLine13Time = time; // Expose globally for left canvas
                                     window._rightFinalLine13Done = true; // Trigger left canvas new phase (after 1 second delay)
                                     needsRedraw = true;
-                                    // Don't increment line - stay at line 13, exit typing
+                                    // Don't increment line - stay at pause line, exit typing
                                     // Don't auto-scroll when pausing - just stay at current position
                                 } else {
                                     rightFinalCurrentLine++;
