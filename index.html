@@ -414,11 +414,12 @@
             
             const material = new THREE.MeshBasicMaterial({
                 map: texture,
-                side: THREE.DoubleSide,
+                side: THREE.FrontSide, // Only render side facing player
                 transparent: true
             });
             
             facePlane = new THREE.Mesh(new THREE.PlaneGeometry(floorSize, wallHeight), material);
+            facePlane.renderOrder = 1; // Render face first
             const offset = 0.05;
             facePlane.position.set(-half + offset, wallHeight * 0.5, 0);
             facePlane.rotation.y = Math.PI / 2;
@@ -433,25 +434,29 @@
                 
                 const eyeMaterial = new THREE.MeshBasicMaterial({
                     map: eyeTexture,
-                    side: THREE.DoubleSide,
-                    transparent: true
+                    side: THREE.FrontSide, // Only render side facing player
+                    transparent: true,
+                    depthWrite: false // Don't write to depth buffer - prevents z-fighting
                 });
                 
                 // Eye size same as face (same image size)
                 eyePlane = new THREE.Mesh(new THREE.PlaneGeometry(floorSize, wallHeight), eyeMaterial);
+                eyePlane.renderOrder = 2; // Render eye after face (higher = later)
                 
-                // Position eyes exactly on face (same position, just slightly in front)
+                // Position eyes exactly on face, slightly in front (towards player)
+                // West wall is rotated 90deg, so depth direction is world X axis
+                // Increasing X = closer to player (player is at x~0, wall is at x~-5)
                 eyePlane.position.copy(facePlane.position);
-                eyePlane.position.z += 0.01; // Slightly in front of face
+                eyePlane.position.x += 0.02; // Depth offset in X (towards player)
                 eyePlane.rotation.copy(facePlane.rotation);
                 
                 scene.add(eyePlane);
                 
                 // Store base position for eye tracking (use face position as base)
                 eyeBasePosition = {
-                    x: facePlane.position.x,
+                    x: facePlane.position.x + 0.02, // Same depth offset as eyePlane
                     y: facePlane.position.y,
-                    z: facePlane.position.z + 0.01 // Same as eyePlane z
+                    z: facePlane.position.z
                 };
                 
                 console.log('Face and eyes loaded successfully');
@@ -3606,11 +3611,6 @@
             
             // Update eye tracking (eyes follow player - only horizontal movement)
             if (eyePlane && eyeBasePosition && camera && facePlane) {
-                // Always sync position with face first (except z offset)
-                eyePlane.position.x = facePlane.position.x;
-                eyePlane.position.y = facePlane.position.y;
-                eyePlane.position.z = facePlane.position.z + 0.01; // Slightly in front
-                
                 // Get face world position
                 const faceWorldPos = new THREE.Vector3();
                 facePlane.getWorldPosition(faceWorldPos);
@@ -3621,17 +3621,24 @@
                 // Calculate direction from face to camera in world space
                 const direction = new THREE.Vector3().subVectors(camPos, faceWorldPos);
                 
-                // Convert to local space of the wall (west wall is rotated 90 degrees)
-                // For west wall: world Z -> local X (left/right on wall)
-                // Only use horizontal movement (X axis), ignore Y and Z
-                const horizontalOffset = direction.z * 0.1; // Player's Z movement affects eye X (left/right on wall)
+                // Face is on west wall, rotated 90 degrees around Y axis
+                // Face's local X (left/right) corresponds to world Z direction
+                // When player moves in world +Z (forward), eyes should look right (face local +X)
+                // When player moves in world -Z (backward), eyes should look left (face local -X)
+                // So: face local X = world Z direction
+                const horizontalOffset = direction.z * 0.03; // Subtle eye tracking
                 
                 // Clamp offset to max distance
                 const maxOffset = 0.3;
                 const clampedOffset = Math.max(-maxOffset, Math.min(maxOffset, horizontalOffset));
                 
-                // Apply horizontal offset only (keep Y and Z aligned with face)
-                eyePlane.position.x += clampedOffset;
+                // Apply offset: 
+                // Depth (in front of face) = world X axis for west wall
+                // Horizontal movement (left/right on wall) = world Z axis for west wall
+                eyePlane.position.x = facePlane.position.x + 0.02; // Depth: slightly in front of face (towards player)
+                eyePlane.position.y = facePlane.position.y;
+                eyePlane.position.z = facePlane.position.z + clampedOffset; // Horizontal: left/right tracking
+                eyePlane.rotation.copy(facePlane.rotation);
             }
             
             // Check if closing dialogue is done, wait 3 seconds then enter movement mode
