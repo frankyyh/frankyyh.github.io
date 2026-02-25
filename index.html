@@ -437,15 +437,12 @@
                     transparent: true
                 });
                 
-                // Eye size relative to face (adjust as needed)
-                const eyeWidth = floorSize * 0.3;
-                const eyeHeight = wallHeight * 0.15;
-                eyePlane = new THREE.Mesh(new THREE.PlaneGeometry(eyeWidth, eyeHeight), eyeMaterial);
+                // Eye size same as face (same image size)
+                eyePlane = new THREE.Mesh(new THREE.PlaneGeometry(floorSize, wallHeight), eyeMaterial);
                 
-                // Position eyes on face (adjust y offset to position eyes correctly)
+                // Position eyes exactly on face (same position, just slightly in front)
                 eyePlane.position.copy(facePlane.position);
-                eyePlane.position.y += wallHeight * 0.15; // Adjust vertical position
-                eyePlane.position.z += 0.01; // Slightly in front
+                eyePlane.position.z += 0.01; // Slightly in front of face
                 eyePlane.rotation.copy(facePlane.rotation);
                 
                 scene.add(eyePlane);
