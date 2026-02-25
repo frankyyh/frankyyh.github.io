@@ -1,0 +1,3440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>First Person 3D Exploration</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #000;
+        }
+        
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            cursor: default;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: white;
+            font-size: 14px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+            z-index: 100;
+            pointer-events: none;
+        }
+        
+        #instructions {
+            display: none;
+        }
+        
+        #loading-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            font-family: 'Space Mono', Consolas, monospace;
+            color: #fff;
+        }
+        
+        #loading-screen.hidden {
+            display: none;
+        }
+        
+        #loading-text {
+            font-size: 24px;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading-screen">
+        <div id="loading-text">Loading...</div>
+    </div>
+    <div style="font-family:'Space Mono'; position:absolute; left:-9999px;">.</div>
+    <div id="canvas-container" style="display: none;"></div>
+    <div id="ui">
+        <div>FPS: <span id="fps">0</span></div>
+        <div style="margin-top: 5px;">Position: <span id="position">0, 0, 0</span></div>
+        <div style="margin-top: 5px;">Rotation: <span id="rotation">0, 0</span></div>
+    </div>
+    <div id="instructions">
+        <div><strong>WASD</strong> - Move | <strong>Mouse</strong> - Look Around | <strong>Space</strong> - Jump | <strong>Shift</strong> - Run</div>
+        <div style="margin-top: 5px; font-size: 12px; opacity: 0.8;">Click to lock mouse pointer</div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Loading screen management
+        const loadingScreen = document.getElementById('loading-screen');
+        const loadingText = document.getElementById('loading-text');
+        const canvasContainer = document.getElementById('canvas-container');
+        
+        // Animate loading dots
+        let loadingDotCount = 0;
+        let loadingDotInterval = null;
+        
+        function startLoadingAnimation() {
+            if (loadingDotInterval) return; // Already running
+            loadingDotCount = 0;
+            loadingDotInterval = setInterval(() => {
+                loadingDotCount = (loadingDotCount % 3) + 1;
+                if (loadingText) {
+                    loadingText.textContent = 'Loading' + '.'.repeat(loadingDotCount);
+                }
+            }, 500); // Change every 500ms
+        }
+        
+        function stopLoadingAnimation() {
+            if (loadingDotInterval) {
+                clearInterval(loadingDotInterval);
+                loadingDotInterval = null;
+            }
+        }
+        
+        // Start animation immediately when DOM is ready
+        function initLoadingAnimation() {
+            if (loadingText) {
+                startLoadingAnimation();
+            } else {
+                // Retry if element not ready yet
+                setTimeout(initLoadingAnimation, 10);
+            }
+        }
+        
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initLoadingAnimation);
+        } else {
+            initLoadingAnimation();
+        }
+        
+        // Global audio context for typewriter sounds (will be initialized during loading)
+        let globalAudioContext = null;
+        
+        // Wait for all resources to load
+        async function initializeApp() {
+            // Stop loading animation
+            stopLoadingAnimation();
+            try {
+                // Wait for fonts to load (with timeout)
+                try {
+                    await Promise.race([
+                        document.fonts.ready,
+                        new Promise(resolve => setTimeout(resolve, 2000)) // 2 second timeout
+                    ]);
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                } catch (e) {
+                    console.warn('Font loading check failed:', e);
+                }
+                
+                // Wait for Three.js to be available (with timeout)
+                let attempts = 0;
+                const maxAttempts = 100; // 5 seconds max
+                while (typeof THREE === 'undefined' && attempts < maxAttempts) {
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                    attempts++;
+                }
+                
+                if (typeof THREE === 'undefined') {
+                    console.error('Three.js failed to load');
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    // Continue anyway, might work
+                }
+                
+                // Initialize audio context (don't suspend, let it start automatically)
+                try {
+                    globalAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    // Try to resume if suspended (some browsers suspend by default)
+                    if (globalAudioContext.state === 'suspended') {
+                        // Try to resume automatically (may require user interaction)
+                        globalAudioContext.resume().catch(() => {
+                            // Will resume on first user interaction
+                        });
+                    }
+                } catch (e) {
+                    console.warn('Audio initialization failed:', e);
+                    // Continue without audio
+                }
+                
+                // Small delay to ensure everything is ready
+                await new Promise(resolve => setTimeout(resolve, 200));
+                
+                // Stop loading animation
+                stopLoadingAnimation();
+                
+                // Show "Ready?" and wait for user click
+                loadingText.textContent = 'Ready?';
+                loadingScreen.style.cursor = 'pointer';
+                
+                // Wait for user click to start game and resume audio
+                return new Promise((resolve) => {
+                    const startGame = async () => {
+                        // Resume audio on user click
+                        if (globalAudioContext && globalAudioContext.state === 'suspended') {
+                            try {
+                                await globalAudioContext.resume();
+                            } catch (e) {
+                                console.warn('Failed to resume audio:', e);
+                            }
+                        }
+                        
+                        // Initialize scene (all Three.js code)
+                        initScene();
+                        
+                        // Hide loading screen and show content
+                        loadingScreen.classList.add('hidden');
+                        canvasContainer.style.display = 'block';
+                        
+                        resolve();
+                    };
+                    
+                    // Make loading screen clickable
+                    loadingScreen.addEventListener('click', startGame, { once: true });
+                });
+            } catch (error) {
+                console.error('Loading failed:', error);
+                // Still try to show content after delay
+                setTimeout(() => {
+                    loadingScreen.classList.add('hidden');
+                    canvasContainer.style.display = 'block';
+                    if (typeof THREE !== 'undefined') {
+                        initScene();
+                    }
+                }, 2000);
+            }
+        }
+        
+        // Start initialization immediately (script runs after DOM is ready)
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            // DOM already loaded, start immediately
+            initializeApp();
+        }
+        
+        // Scene initialization function (will be called after loading)
+        let scene, camera, renderer; // Declare variables in outer scope
+        
+        function initScene() {
+            // Scene setup
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+
+            // Camera - first person perspective
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 4, -1.5); // Start position
+
+            // Renderer - pixel art style, no anti-aliasing for sharp edges
+            renderer = new THREE.WebGLRenderer({ antialias: false });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2)); // Use device pixel ratio, cap at 2x
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // Pure black material for all surfaces
+        const blackMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide });
+
+        // Room dimensions
+        const floorSize = 10;
+        const wallHeight = 7;
+        const half = floorSize / 2;
+
+        // Create floor
+        const floorGeometry = new THREE.PlaneGeometry(floorSize, floorSize);
+        const floor = new THREE.Mesh(floorGeometry, blackMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = 0;
+        scene.add(floor);
+
+        // Create walls (4 walls around the player)
+        // North wall
+        const northWall = new THREE.Mesh(new THREE.PlaneGeometry(floorSize, wallHeight), blackMaterial);
+        northWall.position.set(0, wallHeight / 2, -half);
+        scene.add(northWall);
+        
+        // South wall
+        const southWall = new THREE.Mesh(new THREE.PlaneGeometry(floorSize, wallHeight), blackMaterial);
+        southWall.position.set(0, wallHeight / 2, half);
+        southWall.rotation.y = Math.PI;
+        scene.add(southWall);
+        
+        // East wall
+        const eastWall = new THREE.Mesh(new THREE.PlaneGeometry(floorSize, wallHeight), blackMaterial);
+        eastWall.position.set(half, wallHeight / 2, 0);
+        eastWall.rotation.y = -Math.PI / 2;
+        scene.add(eastWall);
+        
+        // West wall
+        const westWall = new THREE.Mesh(new THREE.PlaneGeometry(floorSize, wallHeight), blackMaterial);
+        westWall.position.set(-half, wallHeight / 2, 0);
+        westWall.rotation.y = Math.PI / 2;
+        scene.add(westWall);
+
+        // ---- Draw all room edges as 3D cylinders (thick lines) ----
+        const edgeMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const edgeRadius = 0.04; // Thickness of the edge lines
+
+        // Helper: create a cylinder between two points
+        function createEdge(p1, p2) {
+            const dir = new THREE.Vector3().subVectors(p2, p1);
+            const length = dir.length();
+            const geom = new THREE.CylinderGeometry(edgeRadius, edgeRadius, length, 4, 1);
+            const mesh = new THREE.Mesh(geom, edgeMaterial);
+            // Position at midpoint
+            mesh.position.copy(p1).add(p2).multiplyScalar(0.5);
+            // Align to direction
+            const up = new THREE.Vector3(0, 1, 0);
+            const axis = new THREE.Vector3().crossVectors(up, dir.normalize()).normalize();
+            const angle = Math.acos(up.dot(dir.normalize()));
+            if (axis.length() > 0.001) {
+                mesh.quaternion.setFromAxisAngle(axis, angle);
+            } else if (dir.y < 0) {
+                mesh.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
+            }
+            scene.add(mesh);
+        }
+
+        // 8 corner vertices of the room
+        const h = wallHeight;
+        const b0 = new THREE.Vector3(-half, 0, -half);
+        const b1 = new THREE.Vector3( half, 0, -half);
+        const b2 = new THREE.Vector3( half, 0,  half);
+        const b3 = new THREE.Vector3(-half, 0,  half);
+        const t0 = new THREE.Vector3(-half, h, -half);
+        const t1 = new THREE.Vector3( half, h, -half);
+        const t2 = new THREE.Vector3( half, h,  half);
+        const t3 = new THREE.Vector3(-half, h,  half);
+
+        // 12 edges: 4 bottom + 4 top + 4 vertical
+        // Bottom edges (floor border)
+        createEdge(b0, b1); createEdge(b1, b2); createEdge(b2, b3); createEdge(b3, b0);
+        // Top edges
+        createEdge(t0, t1); createEdge(t1, t2); createEdge(t2, t3); createEdge(t3, t0);
+        // Vertical edges (wall-wall corners)
+        createEdge(b0, t0); createEdge(b1, t1); createEdge(b2, t2); createEdge(b3, t3);
+
+        // ---- Text on wall helper ----
+        // wall: 'north' | 'south' | 'east' | 'west'
+        // text: string to display
+        // options: { x, y, fontSize, fontFamily, color, width, height }
+        //   x/y: position along the wall (-1 to 1 normalized), 0 = center
+        //   fontSize: in px on the canvas (default 64)
+        //   color: text color (default 'white')
+        //   width/height: plane size in world units (default 4, 2)
+        function createTextOnWall(wall, text, options = {}) {
+            const {
+                x = 0, y = 0.5,
+                fontSize = 64,
+                fontFamily = 'monospace',
+                color = 'white',
+                width = 4, height = 2,
+                align = 'center',
+                multiline = false
+            } = options;
+
+            // Create canvas
+            const canvas = document.createElement('canvas');
+            const res = 512; // resolution
+            canvas.width = res * (width / height);
+            canvas.height = res;
+            const ctx = canvas.getContext('2d');
+
+            // Transparent background
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw text
+            ctx.fillStyle = color;
+            ctx.font = `${fontSize}px ${fontFamily}`;
+            ctx.textAlign = align;
+            ctx.textBaseline = 'middle';
+
+            if (multiline) {
+                const lines = text.split('\n');
+                const lineHeight = fontSize * 1.3;
+                const startY = canvas.height / 2 - (lines.length - 1) * lineHeight / 2;
+                lines.forEach((line, i) => {
+                    ctx.fillText(line, canvas.width / 2, startY + i * lineHeight);
+                });
+            } else {
+                ctx.fillText(text, canvas.width / 2, canvas.height / 2);
+            }
+
+            // Create texture
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.needsUpdate = true;
+
+            // Create plane
+            const mat = new THREE.MeshBasicMaterial({
+                map: texture,
+                transparent: true,
+                side: THREE.DoubleSide,
+                depthWrite: false
+            });
+            const plane = new THREE.Mesh(new THREE.PlaneGeometry(width, height), mat);
+
+            // Position on wall
+            const offset = 0.05; // Slight offset from wall to prevent z-fighting
+            switch (wall) {
+                case 'north':
+                    plane.position.set(x * half, wallHeight * y, -half + offset);
+                    break;
+                case 'south':
+                    plane.position.set(x * half, wallHeight * y, half - offset);
+                    plane.rotation.y = Math.PI;
+                    break;
+                case 'east':
+                    plane.position.set(half - offset, wallHeight * y, x * half);
+                    plane.rotation.y = -Math.PI / 2;
+                    break;
+                case 'west':
+                    plane.position.set(-half + offset, wallHeight * y, x * half);
+                    plane.rotation.y = Math.PI / 2;
+                    break;
+            }
+
+            scene.add(plane);
+            return plane;
+        }
+
+        // ---- Dialogue system on north wall ----
+        (function() {
+            const typingLines = ['Hi.', 'Have you been here before?'];
+            const charDelay = 2; // 10x speed for testing
+            const lineDelay = 15; // 10x speed for testing
+            const startDelay = 1000;
+
+            // Phases: 'typing' -> 'options' -> 'no_typing' -> 'final_typing' -> 'final_options' -> 'final_continue' -> 'final_done' -> 'hiring_typing' -> 'hiring_options' -> 'hiring_response' | 'done'
+            let phase = 'typing';
+
+            // Typewriter sound effect using Web Audio API
+            // Use global audio context created during loading
+            
+            // Resume audio context on first user interaction
+            function resumeAudio() {
+                if (!globalAudioContext) return Promise.resolve();
+                if (globalAudioContext.state === 'running') return Promise.resolve();
+                
+                return globalAudioContext.resume().catch(e => {
+                    console.warn('Failed to resume audio:', e);
+                });
+            }
+            
+            // Resume audio on any click (for user-initiated resume)
+            document.addEventListener('click', resumeAudio, { once: true });
+            
+            // Also try to resume audio automatically when typing starts
+            // Exposed globally so right canvas IIFE can also use it
+            window.playTypewriterSound = function() {
+                // Use global audio context
+                const ctx = globalAudioContext;
+                if (!ctx) return;
+                
+                // Try to resume if suspended (this will work on first character if browser allows)
+                if (ctx.state === 'suspended') {
+                    ctx.resume().then(() => {
+                        // Audio is now resumed, play the sound
+                        playSoundNow();
+                    }).catch(() => {
+                        // Resume failed, skip this sound
+                    });
+                    return;
+                }
+                
+                // Audio is already running, play immediately
+                playSoundNow();
+                
+                function playSoundNow() {
+                    if (!ctx || ctx.state !== 'running') return;
+                    
+                    // Create a crisp, low-pitched typewriter sound with minimal echo
+                    const oscillator = ctx.createOscillator();
+                    const gainNode = ctx.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(ctx.destination);
+
+                    // Lower frequency for deeper sound, square wave for crispness
+                    oscillator.type = 'square'; // Square wave for crisp, sharp sound
+                    const baseFreq = 80 + Math.random() * 30; // Lower base frequency (80-110 Hz)
+                    oscillator.frequency.setValueAtTime(baseFreq, ctx.currentTime);
+                    
+                    // Minimal frequency variation for crispness
+                    oscillator.frequency.exponentialRampToValueAtTime(
+                        baseFreq * (0.9 + Math.random() * 0.1), 
+                        ctx.currentTime + 0.01
+                    );
+                    
+                    // Quick, sharp attack and fast decay to reduce echo
+                    gainNode.gain.setValueAtTime(0, ctx.currentTime);
+                    gainNode.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.001); // Very quick attack for crispness
+                    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.03); // Fast decay to reduce echo
+                    
+                    oscillator.start(ctx.currentTime);
+                    oscillator.stop(ctx.currentTime + 0.03); // Shorter duration to reduce echo
+                }
+            }
+
+            // No response lines (typewriter after choosing No)
+            const noResponseLines = [
+                'Well… let me introduce the creator first.',
+                'You can call him 叶宇恒, or Frank, or whatever makes this feel more important than it actually is.',
+                'He made, is making, and might continue making games.',
+                'Not these fancy ones.',
+                'More like something he uploads to itch, and then watches dissolve quietly like a drop of water in the ocean.',
+                'If he\'s lucky enough, there\'s about a 1/100000 chance that someone might see, open, and play one of them.',
+                'And an even smaller chance that they\'ll remember it.',
+                'He claims that he\'s "experimenting".',
+                'Let\'s be honest, he\'s just trying to entertain himself, and he fails most of the time.',
+                'He doesn\'t really know what he wants, and pretends that he doesn\'t care.',
+                'He\'s painfully ordinary, just a random person making unimportant things and hoping that they matter.'
+            ];
+            let noCurrentLine = 0;
+            let noCurrentChar = 0;
+            let noDisplayedText = noResponseLines.map(() => '');
+            let noLastCharTime = -1;
+            let noTypingDone = false;
+            
+            // Final dialogue lines (after no_done)
+            // Phase 1: Type first two lines, then show Yes/No options (second options)
+            // Phase 2: If Yes, continue with remaining lines
+            const finalLines = [
+                "That's it.",
+                "Are you sure you want to proceed?",
+            ];
+            const finalContinueLines = [
+                "All right, if you're patient enough to see this, it means you're either boring as FUCK, or strangely interested in this loser.",
+                "I'll connect you to him."
+            ];
+            let finalCurrentLine = 0;
+            let finalCurrentChar = 0;
+            let finalDisplayedText = finalLines.map(() => '');
+            let finalLastCharTime = -1;
+            let finalTypingDone = false;
+            
+            // Second options state (clickable Yes/No)
+            let secondChosenOption = null; // 'yes' | 'no' | null
+            let secondYesHovered = false;
+            let secondNoHovered = false;
+            let secondYesX = 0;
+            let secondYesY = 0;
+            let secondYesWidth = 0;
+            let secondNoX = 0;
+            let secondNoY = 0;
+            let secondNoWidth = 0;
+            
+            // Final continue typing state
+            let finalContinueCurrentLine = 0;
+            let finalContinueCurrentChar = 0;
+            let finalContinueDisplayedText = finalContinueLines.map(() => '');
+            let finalContinueLastCharTime = -1;
+            
+            // Hiring manager dialogue (after right canvas finishes "in whatever future you end up in")
+            const hiringLines = [
+                "Oh please, save your heartfelt closing.",
+                "Imagine reading this as a hiring manager.",
+                "Would you hire him?",
+            ];
+            let hiringCurrentLine = 0;
+            let hiringCurrentChar = 0;
+            let hiringDisplayedText = hiringLines.map(() => '');
+            let hiringLastCharTime = -1;
+            let hiringTypingDone = false;
+            
+            // Hiring response lines (after user inputs "no") - only "Exactly." on left canvas
+            const hiringResponseLines = [
+                "Exactly."
+            ];
+            let hiringResponseCurrentLine = 0;
+            let hiringResponseCurrentChar = 0;
+            let hiringResponseDisplayedText = hiringResponseLines.map(() => '');
+            let hiringResponseLastCharTime = -1;
+            let hiringResponseTypingDone = false;
+            
+            // Final closing lines (after right canvas finishes "See you later :)")
+            const closingLines = [
+                "Well, he's finally done.",
+                "The space is yours now, have fun."
+            ];
+            let closingCurrentLine = 0;
+            let closingCurrentChar = 0;
+            let closingDisplayedText = closingLines.map(() => '');
+            let closingLastCharTime = -1;
+            let closingTypingDone = false;
+            let closingStartTime = -1; // Time when closing dialogue starts
+            
+            // Hiring input state
+            let hiringUserInput = ''; // User's input text for hiring question
+            let hiringChosenOption = null; // 'no' | null
+            let hiringResponseExactlyDoneTime = -1; // Time when "Exactly." finished (for 1 second delay before resuming right canvas)
+            
+            // Global flag to track when right canvas finishes
+            window._rightCanvasFinished = false;
+            window._rightCanvasFinishedTime = -1;
+
+            const canvasW = 2048;
+            const canvasH = 1920; // Increased height for more vertical space
+            const canvas = document.createElement('canvas');
+            canvas.width = canvasW;
+            canvas.height = canvasH;
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = false;
+
+            const texture = new THREE.CanvasTexture(canvas);
+            texture.minFilter = THREE.NearestFilter;
+            texture.magFilter = THREE.NearestFilter;
+            texture.generateMipmaps = false;
+
+            const planeW = 4.5; // Keep original size for font size consistency
+            const planeH = planeW * (canvasH / canvasW);
+            const mat = new THREE.MeshBasicMaterial({
+                map: texture,
+                transparent: true,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+                opacity: 1 // Explicitly set initial opacity for fade out animation
+            });
+            const dialoguePlane = new THREE.Mesh(new THREE.PlaneGeometry(planeW, planeH), mat);
+
+            // Left side of north wall (same position as before)
+            dialoguePlane.position.set(-half + planeW / 2 + 1.0, wallHeight - planeH / 2 - 1.0, -half + 0.05);
+            scene.add(dialoguePlane);
+            
+            // Expose material for fade out animation
+            window._leftCanvasMaterial = mat;
+            window._leftCanvasPlane = dialoguePlane;
+            
+            // Border removed
+
+            // Typewriter state
+            let currentLine = 0;
+            let currentChar = 0;
+            let displayedText = typingLines.map(() => '');
+            let lastCharTime = -1;
+            let typingDone = false;
+
+            const fontSize = 64;
+            const lineHeight = 90;
+            const padX = 40;
+            const padY = 50;
+            
+            // Scroll state for left canvas
+            let scrollOffset = 0;
+            let maxScrollOffset = 0;
+            let isTyping = false; // Track if currently typing (disable manual scroll during typing)
+
+            // Word-wrap helper: splits text into lines that fit within maxWidth
+            function wrapText(text, font, maxWidth) {
+                ctx.font = font;
+                const words = text.split(' ');
+                const lines = [];
+                let current = '';
+                for (const word of words) {
+                    const test = current ? current + ' ' + word : word;
+                    if (ctx.measureText(test).width > maxWidth && current) {
+                        lines.push(current);
+                        current = word;
+                    } else {
+                        current = test;
+                    }
+                }
+                if (current) lines.push(current);
+                return lines;
+            }
+
+            // Input field for options
+            const optionFontSize = 64;
+            let chosenOption = null; // 'yes' | 'no' | null
+            let lastDynamicOptionY = 0; // Updated each frame
+            let userInput = ''; // User's input text
+
+            let lastBlinkState = -1;
+
+            // Helper: draw text with word-wrap, returns { totalLines, lastLineWidth, lastLineY }
+            // Reduce text width for earlier line breaks (but keep canvas physical size same)
+            const textMaxWidth = (canvasW - padX * 2) * 0.75; // 75% width for earlier breaks
+            function drawWrappedText(text, startY, font) {
+                ctx.font = font;
+                const wrapped = wrapText(text, font, textMaxWidth);
+                for (let j = 0; j < wrapped.length; j++) {
+                    ctx.fillText(wrapped[j], padX, startY + j * lineHeight);
+                }
+                const lastWrapped = wrapped[wrapped.length - 1] || '';
+                return {
+                    totalLines: wrapped.length,
+                    lastLineWidth: ctx.measureText(lastWrapped).width,
+                    lastLineY: startY + (wrapped.length - 1) * lineHeight
+                };
+            }
+
+            function redrawCanvas(time) {
+                ctx.clearRect(0, 0, canvasW, canvasH);
+                ctx.imageSmoothingEnabled = false;
+
+                const mainFont = `${fontSize}px "Space Mono", Consolas, monospace`;
+
+                // Draw typed lines with word wrap
+                ctx.fillStyle = 'white';
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+
+                let yOffset = padY - scrollOffset;
+                let lastInfo = null;
+                for (let i = 0; i < displayedText.length; i++) {
+                    if (displayedText[i].length > 0) {
+                        lastInfo = drawWrappedText(displayedText[i], yOffset, mainFont);
+                        yOffset += lastInfo.totalLines * lineHeight;
+                    }
+                }
+
+                // Blinking cursor during typing
+                if (phase === 'typing' && lastInfo) {
+                    ctx.font = mainFont;
+                    if (Math.floor(time / 500) % 2 === 0) {
+                        ctx.fillStyle = 'white';
+                        ctx.fillRect(padX + lastInfo.lastLineWidth + 4, lastInfo.lastLineY + 2, 4, fontSize - 4);
+                    }
+                }
+
+                // Options Y position based on wrapped text (use lineHeight for consistent spacing)
+                // yOffset is the bottom of the last typed line, so dynamicOptionY should be the next line
+                const dynamicOptionY = yOffset;
+                lastDynamicOptionY = dynamicOptionY;
+                
+                // Calculate total content height for scrolling
+                // Calculate from padY (top padding) without scrollOffset to get absolute height
+                let calcY = padY;
+                for (let i = 0; i < displayedText.length; i++) {
+                    if (displayedText[i].length > 0) {
+                        const wrapped = wrapText(displayedText[i], mainFont, textMaxWidth);
+                        calcY += wrapped.length * lineHeight;
+                    }
+                }
+                // Add option line
+                calcY += lineHeight;
+                
+                let totalContentHeight = calcY;
+                if (phase === 'no_typing' || phase === 'final_typing' || phase === 'final_options' || phase === 'final_continue' || phase === 'final_done' || phase === 'hiring_typing' || phase === 'hiring_options' || phase === 'hiring_response' || phase === 'done' || phase === 'closing_typing') {
+                    calcY += lineHeight; // ">no" line
+                    for (let i = 0; i < noDisplayedText.length; i++) {
+                        if (noDisplayedText[i].length > 0) {
+                            const wrapped = wrapText(noDisplayedText[i], mainFont, textMaxWidth);
+                            calcY += wrapped.length * lineHeight;
+                        }
+                    }
+                    if (phase === 'final_typing' || phase === 'final_options' || phase === 'final_continue' || phase === 'final_done' || phase === 'hiring_typing' || phase === 'hiring_options' || phase === 'hiring_response' || phase === 'done' || phase === 'closing_typing') {
+                        for (let i = 0; i < finalDisplayedText.length; i++) {
+                            if (finalDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(finalDisplayedText[i], mainFont, textMaxWidth);
+                                calcY += wrapped.length * lineHeight;
+                            }
+                        }
+                    }
+                    // Yes/No options only exist in final_options phase, not in hiring phases
+                    if (phase === 'final_options') {
+                        calcY += lineHeight * 2; // Yes and No options (2 lines)
+                    }
+                    if (phase === 'final_continue' || phase === 'final_done' || phase === 'hiring_typing' || phase === 'hiring_options' || phase === 'hiring_response' || phase === 'done') {
+                        calcY += lineHeight; // ">yes" or ">no" shown
+                    }
+                    if (phase === 'final_continue' || phase === 'final_done' || phase === 'hiring_typing' || phase === 'hiring_options' || phase === 'hiring_response' || phase === 'done' || phase === 'closing_typing') {
+                        for (let i = 0; i < finalContinueDisplayedText.length; i++) {
+                            if (finalContinueDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(finalContinueDisplayedText[i], mainFont, textMaxWidth);
+                                calcY += wrapped.length * lineHeight;
+                            }
+                        }
+                    }
+                    if (phase === 'hiring_typing' || phase === 'hiring_options' || phase === 'hiring_response' || phase === 'done' || phase === 'closing_typing') {
+                        for (let i = 0; i < hiringDisplayedText.length; i++) {
+                            if (hiringDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(hiringDisplayedText[i], mainFont, textMaxWidth);
+                                calcY += wrapped.length * lineHeight;
+                            }
+                        }
+                        if (phase === 'hiring_options' || phase === 'hiring_response' || phase === 'done' || phase === 'closing_typing') {
+                            calcY += lineHeight; // ">no" input line
+                        }
+                        if (phase === 'hiring_response' || phase === 'done' || phase === 'closing_typing') {
+                            for (let i = 0; i < hiringResponseDisplayedText.length; i++) {
+                                if (hiringResponseDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(hiringResponseDisplayedText[i], mainFont, textMaxWidth);
+                                    calcY += wrapped.length * lineHeight;
+                                } else if (hiringResponseLines[i] === '') {
+                                    calcY += lineHeight; // Empty line
+                                }
+                            }
+                        }
+                    }
+                    if (phase === 'closing_typing') {
+                        // Always calculate full height of closing lines (even if not yet displayed)
+                        // This prevents scrollOffset from jumping to top when phase changes
+                        for (let i = 0; i < closingLines.length; i++) {
+                            const wrapped = wrapText(closingLines[i], mainFont, textMaxWidth);
+                            calcY += wrapped.length * lineHeight;
+                        }
+                    }
+                    totalContentHeight = calcY;
+                }
+                
+                // Update max scroll offset
+                // When scrolled to bottom, last line should be at canvasH - padY
+                // So: totalContentHeight - maxScrollOffset = canvasH - padY
+                // Therefore: maxScrollOffset = totalContentHeight - canvasH + padY
+                maxScrollOffset = Math.max(0, totalContentHeight - canvasH + padY);
+                scrollOffset = Math.max(0, Math.min(scrollOffset, maxScrollOffset));
+                
+                // Auto-scroll in options phase to ensure input field is visible
+                if (phase === 'options') {
+                    const inputBottom = dynamicOptionY + lineHeight;
+                    const visibleBottom = canvasH - padY;
+                    if (inputBottom - scrollOffset > visibleBottom) {
+                        scrollOffset = Math.max(0, inputBottom - visibleBottom + lineHeight);
+                        scrollOffset = Math.min(scrollOffset, maxScrollOffset);
+                    }
+                }
+                // Auto-scroll in hiring_options phase to ensure input field is visible
+                if (phase === 'hiring_options') {
+                    let tempY = padY;
+                    for (let i = 0; i < displayedText.length; i++) {
+                        if (displayedText[i].length > 0) {
+                            const wrapped = wrapText(displayedText[i], mainFont, textMaxWidth);
+                            tempY += wrapped.length * lineHeight;
+                        }
+                    }
+                    tempY += lineHeight; // first option line
+                    for (let i = 0; i < noDisplayedText.length; i++) {
+                        if (noDisplayedText[i].length > 0) {
+                            const wrapped = wrapText(noDisplayedText[i], mainFont, textMaxWidth);
+                            tempY += wrapped.length * lineHeight;
+                        }
+                    }
+                    for (let i = 0; i < finalDisplayedText.length; i++) {
+                        if (finalDisplayedText[i].length > 0) {
+                            const wrapped = wrapText(finalDisplayedText[i], mainFont, textMaxWidth);
+                            tempY += wrapped.length * lineHeight;
+                        }
+                        }
+                        // Yes/No options are no longer shown in hiring phases, so don't add space for them
+                        for (let i = 0; i < finalContinueDisplayedText.length; i++) {
+                            if (finalContinueDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(finalContinueDisplayedText[i], mainFont, textMaxWidth);
+                                tempY += wrapped.length * lineHeight;
+                            }
+                        }
+                        for (let i = 0; i < hiringDisplayedText.length; i++) {
+                        if (hiringDisplayedText[i].length > 0) {
+                            const wrapped = wrapText(hiringDisplayedText[i], mainFont, textMaxWidth);
+                            tempY += wrapped.length * lineHeight;
+                        }
+                    }
+                    const inputBottom = tempY + lineHeight;
+                    const visibleBottom = canvasH - padY;
+                    if (inputBottom - scrollOffset > visibleBottom) {
+                        scrollOffset = Math.max(0, inputBottom - visibleBottom + lineHeight);
+                        scrollOffset = Math.min(scrollOffset, maxScrollOffset);
+                    }
+                }
+                // Auto-scroll in final_options phase to ensure both Yes and No options are visible
+                if (phase === 'final_options') {
+                    // Calculate where the second option (No) would be
+                    let tempY = padY;
+                    for (let i = 0; i < displayedText.length; i++) {
+                        if (displayedText[i].length > 0) {
+                            const wrapped = wrapText(displayedText[i], mainFont, textMaxWidth);
+                            tempY += wrapped.length * lineHeight;
+                        }
+                    }
+                    tempY += lineHeight; // first option line
+                    for (let i = 0; i < noDisplayedText.length; i++) {
+                        if (noDisplayedText[i].length > 0) {
+                            const wrapped = wrapText(noDisplayedText[i], mainFont, textMaxWidth);
+                            tempY += wrapped.length * lineHeight;
+                        }
+                    }
+                    for (let i = 0; i < finalDisplayedText.length; i++) {
+                        if (finalDisplayedText[i].length > 0) {
+                            const wrapped = wrapText(finalDisplayedText[i], mainFont, textMaxWidth);
+                            tempY += wrapped.length * lineHeight;
+                        }
+                    }
+                    // Add Yes option line
+                    tempY += lineHeight;
+                    // Add No option line
+                    tempY += lineHeight;
+                    const optionsBottom = tempY;
+                    const visibleBottom = canvasH - padY;
+                    if (optionsBottom - scrollOffset > visibleBottom) {
+                        scrollOffset = Math.max(0, optionsBottom - visibleBottom + lineHeight);
+                        scrollOffset = Math.min(scrollOffset, maxScrollOffset);
+                    }
+                }
+
+                // Draw input field for options
+                if (phase === 'options') {
+                    ctx.fillStyle = 'white';
+                    ctx.font = `${optionFontSize}px "Space Mono", Consolas, monospace`;
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'top';
+                    const inputText = '>' + userInput;
+                    ctx.fillText(inputText, padX, dynamicOptionY);
+                    
+                    // Draw blinking cursor
+                    const cursorBlink = Math.floor(time / 500) % 2 === 0;
+                    if (cursorBlink) {
+                        const textWidth = ctx.measureText(inputText).width;
+                        ctx.fillRect(padX + textWidth + 4, dynamicOptionY + 2, 4, optionFontSize - 4);
+                    }
+                }
+
+                // After choosing: show chosen option
+                if (phase === 'done' || phase === 'no_typing' || phase === 'final_typing' || phase === 'final_options' || phase === 'final_continue' || phase === 'final_done') {
+                    ctx.fillStyle = 'white';
+                    ctx.font = `${optionFontSize}px "Space Mono", Consolas, monospace`;
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(chosenOption === 'yes' ? '>yes' : '>no', padX, dynamicOptionY);
+                }
+
+                // No response: typewriter lines below chosen option with word wrap
+                if (phase === 'no_typing' || phase === 'final_typing' || phase === 'final_options' || phase === 'final_continue' || phase === 'final_done') {
+                    const responseStartY = dynamicOptionY + lineHeight;
+                    ctx.fillStyle = 'white';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'top';
+
+                    let noYOffset = responseStartY;
+                    let noLastInfo = null;
+                    
+                    // Draw no response lines
+                    for (let i = 0; i < noDisplayedText.length; i++) {
+                        if (noDisplayedText[i].length > 0) {
+                            noLastInfo = drawWrappedText(noDisplayedText[i], noYOffset, mainFont);
+                            noYOffset += noLastInfo.totalLines * lineHeight;
+                        }
+                    }
+                    
+                    // Draw final lines (That's it. / Are you sure you want to proceed?)
+                    if (phase === 'final_typing' || phase === 'final_options' || phase === 'final_continue' || phase === 'final_done') {
+                        for (let i = 0; i < finalDisplayedText.length; i++) {
+                            if (finalDisplayedText[i].length > 0) {
+                                noLastInfo = drawWrappedText(finalDisplayedText[i], noYOffset, mainFont);
+                                noYOffset += noLastInfo.totalLines * lineHeight;
+                            }
+                        }
+                    }
+                    
+                    // Second options (clickable Yes/No) - only show in final_options phase, disappear after choice
+                    if (phase === 'final_options') {
+                        ctx.font = `${optionFontSize}px "Space Mono", Consolas, monospace`;
+                        
+                        // Draw "Yes" option
+                        const yesText = 'Yes';
+                        ctx.font = `${optionFontSize}px "Space Mono", Consolas, monospace`;
+                        const yesWidth = ctx.measureText(yesText).width;
+                        secondYesX = padX;
+                        secondYesY = noYOffset + scrollOffset; // Store in content space
+                        secondYesWidth = yesWidth;
+                        
+                        // Only show hover/selected state if in final_options phase (not after clicking)
+                        if (phase === 'final_options' && secondChosenOption === 'yes') {
+                            // Chosen: white background, black text (only during final_options phase)
+                            ctx.fillStyle = 'white';
+                            ctx.fillRect(padX - 4, noYOffset - 2, yesWidth + 8, optionFontSize + 4);
+                            ctx.fillStyle = 'black';
+                            ctx.fillText(yesText, padX, noYOffset);
+                            ctx.fillStyle = 'white'; // Reset
+                        } else if (phase === 'final_options' && secondYesHovered) {
+                            // Hovered: white background, black text
+                            ctx.fillStyle = 'white';
+                            ctx.fillRect(padX - 4, noYOffset - 2, yesWidth + 8, optionFontSize + 4);
+                            ctx.fillStyle = 'black';
+                            ctx.fillText(yesText, padX, noYOffset);
+                            ctx.fillStyle = 'white'; // Reset
+                        } else {
+                            // Normal: white text
+                            ctx.fillStyle = 'white';
+                            ctx.fillText(yesText, padX, noYOffset);
+                        }
+                        noYOffset += lineHeight;
+                        
+                        // Draw "No" option
+                        const noText = 'No';
+                        ctx.font = `${optionFontSize}px "Space Mono", Consolas, monospace`;
+                        const noWidth = ctx.measureText(noText).width;
+                        secondNoX = padX;
+                        secondNoY = noYOffset + scrollOffset; // Store in content space
+                        secondNoWidth = noWidth;
+                        
+                        // Only show hover/selected state if in final_options phase (not after clicking)
+                        if (phase === 'final_options' && secondChosenOption === 'no') {
+                            // Chosen: white background, black text (only during final_options phase)
+                            ctx.fillStyle = 'white';
+                            ctx.fillRect(padX - 4, noYOffset - 2, noWidth + 8, optionFontSize + 4);
+                            ctx.fillStyle = 'black';
+                            ctx.fillText(noText, padX, noYOffset);
+                            ctx.fillStyle = 'white'; // Reset
+                        } else if (phase === 'final_options' && secondNoHovered) {
+                            // Hovered: white background, black text
+                            ctx.fillStyle = 'white';
+                            ctx.fillRect(padX - 4, noYOffset - 2, noWidth + 8, optionFontSize + 4);
+                            ctx.fillStyle = 'black';
+                            ctx.fillText(noText, padX, noYOffset);
+                            ctx.fillStyle = 'white'; // Reset
+                        } else {
+                            // Normal: white text
+                            ctx.fillStyle = 'white';
+                            ctx.fillText(noText, padX, noYOffset);
+                        }
+                        noYOffset += lineHeight;
+                    }
+                    
+                    // Show continue lines after Yes is chosen
+                    if (phase === 'final_continue' || phase === 'final_done') {
+                        
+                        // Draw continue lines
+                        for (let i = 0; i < finalContinueDisplayedText.length; i++) {
+                            if (finalContinueDisplayedText[i].length > 0) {
+                                noLastInfo = drawWrappedText(finalContinueDisplayedText[i], noYOffset, mainFont);
+                                noYOffset += noLastInfo.totalLines * lineHeight;
+                            }
+                        }
+                    }
+
+                    // Blinking cursor
+                    if (noLastInfo && (phase === 'no_typing' || phase === 'final_typing' || phase === 'final_continue')) {
+                        ctx.font = mainFont;
+                        if (Math.floor(time / 500) % 2 === 0) {
+                            ctx.fillStyle = 'white';
+                            ctx.fillRect(padX + noLastInfo.lastLineWidth + 4, noLastInfo.lastLineY + 2, 4, fontSize - 4);
+                        }
+                    }
+                }
+                
+                // Draw closing dialogue
+                if (phase === 'closing_typing') {
+                    let closingYOffset = padY - scrollOffset;
+                    
+                    // Draw all previous content
+                    for (let i = 0; i < displayedText.length; i++) {
+                        if (displayedText[i].length > 0) {
+                            const info = drawWrappedText(displayedText[i], closingYOffset, mainFont);
+                            closingYOffset += info.totalLines * lineHeight;
+                        }
+                    }
+                    // Draw first chosen option ">no"
+                    ctx.fillStyle = 'white';
+                    ctx.font = `${optionFontSize}px "Space Mono", Consolas, monospace`;
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(chosenOption === 'yes' ? '>yes' : '>no', padX, closingYOffset);
+                    closingYOffset += lineHeight; // first option line
+                    ctx.font = mainFont;
+                    for (let i = 0; i < noDisplayedText.length; i++) {
+                        if (noDisplayedText[i].length > 0) {
+                            const info = drawWrappedText(noDisplayedText[i], closingYOffset, mainFont);
+                            closingYOffset += info.totalLines * lineHeight;
+                        }
+                    }
+                    for (let i = 0; i < finalDisplayedText.length; i++) {
+                        if (finalDisplayedText[i].length > 0) {
+                            const info = drawWrappedText(finalDisplayedText[i], closingYOffset, mainFont);
+                            closingYOffset += info.totalLines * lineHeight;
+                        }
+                    }
+                    // Yes/No options disappeared after selection, no space needed
+                    for (let i = 0; i < finalContinueDisplayedText.length; i++) {
+                        if (finalContinueDisplayedText[i].length > 0) {
+                            const info = drawWrappedText(finalContinueDisplayedText[i], closingYOffset, mainFont);
+                            closingYOffset += info.totalLines * lineHeight;
+                        }
+                    }
+                    for (let i = 0; i < hiringDisplayedText.length; i++) {
+                        if (hiringDisplayedText[i].length > 0) {
+                            const info = drawWrappedText(hiringDisplayedText[i], closingYOffset, mainFont);
+                            closingYOffset += info.totalLines * lineHeight;
+                        }
+                    }
+                    // Draw hiring input ">no"
+                    ctx.fillStyle = 'white';
+                    ctx.font = `${optionFontSize}px "Space Mono", Consolas, monospace`;
+                    ctx.fillText('>' + (hiringChosenOption || 'no'), padX, closingYOffset);
+                    closingYOffset += lineHeight; // hiring input line
+                    ctx.font = mainFont;
+                    for (let i = 0; i < hiringResponseDisplayedText.length; i++) {
+                        if (hiringResponseDisplayedText[i].length > 0) {
+                            const info = drawWrappedText(hiringResponseDisplayedText[i], closingYOffset, mainFont);
+                            closingYOffset += info.totalLines * lineHeight;
+                        }
+                    }
+                    
+                    // Draw closing lines
+                    for (let i = 0; i < closingDisplayedText.length; i++) {
+                        if (closingDisplayedText[i].length > 0) {
+                            const info = drawWrappedText(closingDisplayedText[i], closingYOffset, mainFont);
+                            closingYOffset += info.totalLines * lineHeight;
+                        }
+                    }
+                    
+                    // Blinking cursor during closing typing
+                    if (closingDisplayedText.length > 0 && closingCurrentLine < closingLines.length) {
+                        let lastClosingInfo = null;
+                        let tempY = padY;
+                        for (let i = 0; i < displayedText.length; i++) {
+                            if (displayedText[i].length > 0) {
+                                const wrapped = wrapText(displayedText[i], mainFont, textMaxWidth);
+                                tempY += wrapped.length * lineHeight;
+                            }
+                        }
+                        tempY += lineHeight; // first option ">no" line
+                        for (let i = 0; i < noDisplayedText.length; i++) {
+                            if (noDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(noDisplayedText[i], mainFont, textMaxWidth);
+                                tempY += wrapped.length * lineHeight;
+                            }
+                        }
+                        for (let i = 0; i < finalDisplayedText.length; i++) {
+                            if (finalDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(finalDisplayedText[i], mainFont, textMaxWidth);
+                                tempY += wrapped.length * lineHeight;
+                            }
+                        }
+                        // Yes/No options disappeared after selection, no space
+                        for (let i = 0; i < finalContinueDisplayedText.length; i++) {
+                            if (finalContinueDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(finalContinueDisplayedText[i], mainFont, textMaxWidth);
+                                tempY += wrapped.length * lineHeight;
+                            }
+                        }
+                        for (let i = 0; i < hiringDisplayedText.length; i++) {
+                            if (hiringDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(hiringDisplayedText[i], mainFont, textMaxWidth);
+                                tempY += wrapped.length * lineHeight;
+                            }
+                        }
+                        tempY += lineHeight; // hiring input line
+                        for (let i = 0; i < hiringResponseDisplayedText.length; i++) {
+                            if (hiringResponseDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(hiringResponseDisplayedText[i], mainFont, textMaxWidth);
+                                tempY += wrapped.length * lineHeight;
+                            }
+                        }
+                        for (let i = 0; i <= closingCurrentLine; i++) {
+                            if (closingDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(closingDisplayedText[i], mainFont, textMaxWidth);
+                                if (i === closingCurrentLine) {
+                                    lastClosingInfo = {
+                                        lastLineWidth: ctx.measureText(wrapped[wrapped.length - 1] || '').width,
+                                        lastLineY: tempY - scrollOffset + (wrapped.length - 1) * lineHeight
+                                    };
+                                }
+                                tempY += wrapped.length * lineHeight;
+                            }
+                        }
+                        if (lastClosingInfo && closingCurrentChar < closingLines[closingCurrentLine].length) {
+                            ctx.font = mainFont;
+                            if (Math.floor(time / 500) % 2 === 0) {
+                                ctx.fillStyle = 'white';
+                                ctx.fillRect(padX + lastClosingInfo.lastLineWidth + 4, lastClosingInfo.lastLineY + 2, 4, fontSize - 4);
+                            }
+                        }
+                    }
+                }
+                
+                // Draw hiring dialogue
+                if (phase === 'hiring_typing' || phase === 'hiring_options' || phase === 'hiring_response' || phase === 'done') {
+                    let hiringYOffset = padY - scrollOffset;
+                    
+                    // Draw all previous content
+                    for (let i = 0; i < displayedText.length; i++) {
+                        if (displayedText[i].length > 0) {
+                            const info = drawWrappedText(displayedText[i], hiringYOffset, mainFont);
+                            hiringYOffset += info.totalLines * lineHeight;
+                        }
+                    }
+                    hiringYOffset += lineHeight; // first option line
+                    for (let i = 0; i < noDisplayedText.length; i++) {
+                        if (noDisplayedText[i].length > 0) {
+                            const info = drawWrappedText(noDisplayedText[i], hiringYOffset, mainFont);
+                            hiringYOffset += info.totalLines * lineHeight;
+                        }
+                    }
+                    for (let i = 0; i < finalDisplayedText.length; i++) {
+                        if (finalDisplayedText[i].length > 0) {
+                            const info = drawWrappedText(finalDisplayedText[i], hiringYOffset, mainFont);
+                            hiringYOffset += info.totalLines * lineHeight;
+                        }
+                    }
+                    // Yes/No options are no longer shown in hiring phases, so don't add space for them
+                    // finalContinueDisplayedText should come right after finalDisplayedText
+                    for (let i = 0; i < finalContinueDisplayedText.length; i++) {
+                        if (finalContinueDisplayedText[i].length > 0) {
+                            const info = drawWrappedText(finalContinueDisplayedText[i], hiringYOffset, mainFont);
+                            hiringYOffset += info.totalLines * lineHeight;
+                        }
+                    }
+                    
+                    // Draw hiring lines
+                    for (let i = 0; i < hiringDisplayedText.length; i++) {
+                        if (hiringDisplayedText[i].length > 0) {
+                            const info = drawWrappedText(hiringDisplayedText[i], hiringYOffset, mainFont);
+                            hiringYOffset += info.totalLines * lineHeight;
+                        }
+                    }
+                    
+                    // Draw hiring input field
+                    if (phase === 'hiring_options') {
+                        ctx.fillStyle = 'white';
+                        ctx.font = `${optionFontSize}px "Space Mono", Consolas, monospace`;
+                        ctx.textAlign = 'left';
+                        ctx.textBaseline = 'top';
+                        const hiringInputText = '>' + hiringUserInput;
+                        ctx.fillText(hiringInputText, padX, hiringYOffset);
+                        
+                        // Draw blinking cursor
+                        const cursorBlink = Math.floor(time / 500) % 2 === 0;
+                        if (cursorBlink) {
+                            const textWidth = ctx.measureText(hiringInputText).width;
+                            ctx.fillRect(padX + textWidth + 4, hiringYOffset + 2, 4, optionFontSize - 4);
+                        }
+                        hiringYOffset += lineHeight;
+                    }
+                    
+                    // Draw chosen option after input
+                    if (phase === 'hiring_response' || phase === 'done') {
+                        ctx.fillStyle = 'white';
+                        ctx.font = `${optionFontSize}px "Space Mono", Consolas, monospace`;
+                        ctx.textAlign = 'left';
+                        ctx.textBaseline = 'top';
+                        ctx.fillText('>no', padX, hiringYOffset);
+                        hiringYOffset += lineHeight;
+                    }
+                    
+                    // Draw hiring response lines
+                    if (phase === 'hiring_response' || phase === 'done') {
+                        for (let i = 0; i < hiringResponseDisplayedText.length; i++) {
+                            if (hiringResponseDisplayedText[i].length > 0) {
+                                const info = drawWrappedText(hiringResponseDisplayedText[i], hiringYOffset, mainFont);
+                                hiringYOffset += info.totalLines * lineHeight;
+                            } else if (hiringResponseLines[i] === '') {
+                                // Empty line: add spacing
+                                hiringYOffset += lineHeight;
+                            }
+                        }
+                    }
+                    
+                    // Blinking cursor during hiring typing
+                    if (phase === 'hiring_typing' && hiringDisplayedText.length > 0 && hiringDisplayedText[hiringDisplayedText.length - 1].length > 0) {
+                        ctx.font = mainFont;
+                        if (Math.floor(time / 500) % 2 === 0) {
+                            ctx.fillStyle = 'white';
+                            const lastLine = hiringDisplayedText[hiringDisplayedText.length - 1];
+                            const wrapped = wrapText(lastLine, mainFont, textMaxWidth);
+                            if (wrapped.length > 0) {
+                                const lastLineWidth = ctx.measureText(wrapped[wrapped.length - 1]).width;
+                                const lastLineY = hiringYOffset - lineHeight;
+                                ctx.fillRect(padX + lastLineWidth + 4, lastLineY + 2, 4, fontSize - 4);
+                            }
+                        }
+                    }
+                    
+                    // Blinking cursor during hiring response typing
+                    if (phase === 'hiring_response' && hiringResponseDisplayedText.length > 0) {
+                        let lastResponseInfo = null;
+                        let tempY = padY;
+                        for (let i = 0; i < displayedText.length; i++) {
+                            if (displayedText[i].length > 0) {
+                                const wrapped = wrapText(displayedText[i], mainFont, textMaxWidth);
+                                tempY += wrapped.length * lineHeight;
+                            }
+                        }
+                        tempY += lineHeight; // first option line
+                        for (let i = 0; i < noDisplayedText.length; i++) {
+                            if (noDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(noDisplayedText[i], mainFont, textMaxWidth);
+                                tempY += wrapped.length * lineHeight;
+                            }
+                        }
+                        for (let i = 0; i < finalDisplayedText.length; i++) {
+                            if (finalDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(finalDisplayedText[i], mainFont, textMaxWidth);
+                                tempY += wrapped.length * lineHeight;
+                            }
+                        }
+                        // Yes/No options are no longer shown in hiring phases, so don't add space for them
+                        for (let i = 0; i < finalContinueDisplayedText.length; i++) {
+                            if (finalContinueDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(finalContinueDisplayedText[i], mainFont, textMaxWidth);
+                                tempY += wrapped.length * lineHeight;
+                            }
+                        }
+                        for (let i = 0; i < hiringDisplayedText.length; i++) {
+                            if (hiringDisplayedText[i].length > 0) {
+                                const wrapped = wrapText(hiringDisplayedText[i], mainFont, textMaxWidth);
+                                tempY += wrapped.length * lineHeight;
+                            }
+                        }
+                        tempY += lineHeight; // hiring input line
+                        for (let i = 0; i < hiringResponseDisplayedText.length; i++) {
+                            if (hiringResponseDisplayedText[i].length > 0) {
+                                lastResponseInfo = drawWrappedText(hiringResponseDisplayedText[i], tempY - scrollOffset, mainFont);
+                                tempY += lastResponseInfo.totalLines * lineHeight;
+                            } else if (hiringResponseLines[i] === '') {
+                                tempY += lineHeight;
+                            }
+                        }
+                        if (lastResponseInfo && hiringResponseCurrentLine < hiringResponseLines.length) {
+                            ctx.font = mainFont;
+                            if (Math.floor(time / 500) % 2 === 0) {
+                                ctx.fillStyle = 'white';
+                                ctx.fillRect(padX + lastResponseInfo.lastLineWidth + 4, lastResponseInfo.lastLineY + 2, 4, fontSize - 4);
+                            }
+                        }
+                    }
+                }
+
+                texture.needsUpdate = true;
+            }
+
+            // Convert mouse screen coords to canvas UV via raycasting
+            const dialogueRaycaster = new THREE.Raycaster();
+            
+            // Handle mouse wheel scrolling for left canvas
+            let isHoveringLeftCanvas = false;
+            renderer.domElement.addEventListener('wheel', (event) => {
+                // Allow scrolling left canvas when right canvas is typing (but not when left canvas is typing)
+                if (isHoveringLeftCanvas && maxScrollOffset > 0 && !isTyping) {
+                    event.preventDefault();
+                    const scrollSpeed = 50; // Pixels per scroll
+                    scrollOffset += event.deltaY > 0 ? scrollSpeed : -scrollSpeed;
+                    scrollOffset = Math.max(0, Math.min(scrollOffset, maxScrollOffset));
+                    redrawCanvas(performance.now());
+                }
+            }, { passive: false });
+            
+            // Track mouse hover over left canvas and clickable options
+            let anyHoverChanged = false;
+            renderer.domElement.addEventListener('mousemove', (event) => {
+                const coords = getCanvasCoords(event);
+                anyHoverChanged = false;
+                
+                if (coords) {
+                    // Check if mouse is over the left canvas plane
+                    const rect = renderer.domElement.getBoundingClientRect();
+                    const mouse = new THREE.Vector2(
+                        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+                        -((event.clientY - rect.top) / rect.height) * 2 + 1
+                    );
+                    dialogueRaycaster.setFromCamera(mouse, camera);
+                    const hits = dialogueRaycaster.intersectObject(dialoguePlane);
+                    if (hits.length > 0) {
+                        isHoveringLeftCanvas = true;
+                        
+                        // Check hover on second options (Yes/No) only in final_options phase
+                        if (phase === 'final_options' && !secondChosenOption) {
+                            const canvasX = coords.x;
+                            const canvasY = coords.y;
+                            
+                            // Check "Yes" option (only if not chosen)
+                            const yesStartY = secondYesY - scrollOffset; // Convert to screen space
+                            const yesHit = canvasX >= secondYesX && canvasX <= secondYesX + secondYesWidth &&
+                                          canvasY >= yesStartY && canvasY <= yesStartY + lineHeight;
+                            if (yesHit !== secondYesHovered) {
+                                secondYesHovered = yesHit;
+                                anyHoverChanged = true;
+                            }
+                            
+                            // Check "No" option (only if not chosen)
+                            const noStartY = secondNoY - scrollOffset; // Convert to screen space
+                            const noHit = canvasX >= secondNoX && canvasX <= secondNoX + secondNoWidth &&
+                                         canvasY >= noStartY && canvasY <= noStartY + lineHeight;
+                            if (noHit !== secondNoHovered) {
+                                secondNoHovered = noHit;
+                                anyHoverChanged = true;
+                            }
+                        } else {
+                            // Reset hover states if not in final_options phase or option is chosen
+                            if (secondYesHovered) { secondYesHovered = false; anyHoverChanged = true; }
+                            if (secondNoHovered) { secondNoHovered = false; anyHoverChanged = true; }
+                        }
+                    } else {
+                        isHoveringLeftCanvas = false;
+                        if (secondYesHovered) { secondYesHovered = false; anyHoverChanged = true; }
+                        if (secondNoHovered) { secondNoHovered = false; anyHoverChanged = true; }
+                    }
+                } else {
+                    isHoveringLeftCanvas = false;
+                    if (secondYesHovered) { secondYesHovered = false; anyHoverChanged = true; }
+                    if (secondNoHovered) { secondNoHovered = false; anyHoverChanged = true; }
+                }
+                
+                if (anyHoverChanged) {
+                    redrawCanvas(performance.now());
+                }
+            });
+            
+            // Handle click on second options (Yes/No)
+            renderer.domElement.addEventListener('click', (event) => {
+                if (phase !== 'final_options') return;
+                
+                const coords = getCanvasCoords(event);
+                if (!coords) return;
+                
+                const canvasX = coords.x;
+                const canvasY = coords.y;
+                
+                // Check "Yes" click
+                const yesStartY = secondYesY - scrollOffset;
+                if (canvasX >= secondYesX && canvasX <= secondYesX + secondYesWidth &&
+                    canvasY >= yesStartY && canvasY <= yesStartY + lineHeight) {
+                    secondChosenOption = 'yes';
+                    secondYesHovered = false; // Clear hover state
+                    secondNoHovered = false;
+                    phase = 'final_continue';
+                    finalContinueCurrentLine = 0;
+                    finalContinueCurrentChar = 0;
+                    finalContinueDisplayedText = finalContinueLines.map(() => '');
+                    finalContinueLastCharTime = performance.now() + lineDelay;
+                    redrawCanvas(performance.now());
+                    event.stopPropagation();
+                }
+                
+                // Check "No" click
+                const noStartY = secondNoY - scrollOffset;
+                if (canvasX >= secondNoX && canvasX <= secondNoX + secondNoWidth &&
+                    canvasY >= noStartY && canvasY <= noStartY + lineHeight) {
+                    secondChosenOption = 'no';
+                    secondYesHovered = false; // Clear hover state
+                    secondNoHovered = false;
+                    phase = 'done';
+                    isTyping = false;
+                    gameState = 'playing';
+                    canvasFadeOutStartTime = performance.now(); // Start fade out animation
+                    // Don't call redrawCanvas here - let the fade out animation handle it
+                    renderer.domElement.requestPointerLock();
+                    event.stopPropagation();
+                }
+            });
+            
+            function getCanvasCoords(event) {
+                const rect = renderer.domElement.getBoundingClientRect();
+                const mouse = new THREE.Vector2(
+                    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+                    -((event.clientY - rect.top) / rect.height) * 2 + 1
+                );
+                dialogueRaycaster.setFromCamera(mouse, camera);
+                const hits = dialogueRaycaster.intersectObject(dialoguePlane);
+                if (hits.length > 0 && hits[0].uv) {
+                    const uv = hits[0].uv;
+                    return { x: uv.x * canvasW, y: (1 - uv.y) * canvasH };
+                }
+                return null;
+            }
+
+            function hitTest(coords, btn) {
+                return coords.x >= btn.x && coords.x <= btn.x + btn.w &&
+                       coords.y >= btn.y && coords.y <= btn.y + btn.h;
+            }
+
+            // Keyboard input handler for options
+            let inputKeyHandler = null;
+            
+            function setupInputHandler() {
+                if (inputKeyHandler) return; // Already set up
+                
+                inputKeyHandler = (event) => {
+                    // Handle right canvas input first (if right canvas is in options phase)
+                    if (window._handleRightInput && (window._rightPhase === 'options1' || window._rightPhase === 'options2')) {
+                        window._handleRightInput(event.key);
+                        event.preventDefault();
+                        return;
+                    }
+                    
+                    if (phase === 'options') {
+                        if (event.key === 'Enter') {
+                            const inputLower = userInput.toLowerCase().trim();
+                            if (inputLower === 'yes') {
+                                chosenOption = 'yes';
+                                phase = 'done';
+                                userInput = '';
+                                gameState = 'playing';
+                                canvasFadeOutStartTime = performance.now(); // Start fade out animation
+                                redrawCanvas(performance.now()); // Redraw after setting fade out start time
+                                renderer.domElement.requestPointerLock();
+                            } else if (inputLower === 'no') {
+                                chosenOption = 'no';
+                                phase = 'no_typing';
+                                userInput = '';
+                                noLastCharTime = performance.now() + lineDelay;
+                                redrawCanvas(performance.now());
+                            }
+                            event.preventDefault();
+                        } else if (event.key === 'Backspace') {
+                            userInput = userInput.slice(0, -1);
+                            redrawCanvas(performance.now());
+                            event.preventDefault();
+                        } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) {
+                            userInput += event.key;
+                            redrawCanvas(performance.now());
+                            event.preventDefault();
+                        }
+                    } else if (phase === 'hiring_options') {
+                        if (event.key === 'Enter') {
+                            const inputLower = hiringUserInput.toLowerCase().trim();
+                            if (inputLower === 'no') {
+                                hiringChosenOption = 'no';
+                                phase = 'hiring_response';
+                                hiringUserInput = '';
+                                hiringResponseCurrentLine = 0;
+                                hiringResponseCurrentChar = 0;
+                                hiringResponseDisplayedText = hiringResponseLines.map(() => '');
+                                hiringResponseLastCharTime = performance.now() + lineDelay;
+                                isTyping = true;
+                                // Don't resume right canvas yet - wait until "Exactly." is finished
+                                redrawCanvas(performance.now());
+                            }
+                            // If not "no", do nothing (wait for correct input)
+                            event.preventDefault();
+                        } else if (event.key === 'Backspace') {
+                            hiringUserInput = hiringUserInput.slice(0, -1);
+                            redrawCanvas(performance.now());
+                            event.preventDefault();
+                        } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey) {
+                            hiringUserInput += event.key;
+                            redrawCanvas(performance.now());
+                            event.preventDefault();
+                        }
+                    } else {
+                        return; // Not in any options phase
+                    }
+                };
+                
+                document.addEventListener('keydown', inputKeyHandler);
+            }
+            
+            function removeInputHandler() {
+                if (inputKeyHandler) {
+                    document.removeEventListener('keydown', inputKeyHandler);
+                    inputKeyHandler = null;
+                }
+            }
+
+            let fontLoaded = false;
+            document.fonts.ready.then(() => {
+                fontLoaded = true;
+                setupInputHandler();
+            });
+
+            window._typewriterUpdate = function(time) {
+                // Don't redraw if fade out animation is active
+                if (canvasFadeOutStartTime >= 0) return;
+                
+                // Update cursor blink in options phase
+                if (phase === 'options' || phase === 'final_options') {
+                    redrawCanvas(time);
+                }
+                if (!fontLoaded) return;
+
+                if (lastCharTime < 0) {
+                    lastCharTime = time + startDelay;
+                    redrawCanvas(time);
+                    return;
+                }
+
+                // Advance typing
+                if (phase === 'typing' && time >= lastCharTime) {
+                    isTyping = true; // Disable manual scroll during typing
+                    if (currentLine < typingLines.length) {
+                        if (currentChar < typingLines[currentLine].length) {
+                            displayedText[currentLine] += typingLines[currentLine][currentChar];
+                            window.playTypewriterSound(); // Play typewriter sound
+                            currentChar++;
+                            lastCharTime = time + charDelay;
+                            
+                            // Auto-scroll if current line is below visible area (calculate without redraw to avoid flicker)
+                            let tempY = padY;
+                            for (let i = 0; i <= currentLine; i++) {
+                                if (displayedText[i].length > 0) {
+                                    const wrapped = wrapText(displayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            const lineBottom = tempY - scrollOffset;
+                            const visibleBottom = canvasH - padY;
+                            // More aggressive scrolling: scroll if current line bottom is getting close to visible bottom
+                            // This ensures scrolling happens even when text wraps mid-line
+                            if (lineBottom > visibleBottom - lineHeight * 2) {
+                                // Scroll extra 3-4 lines ahead for better visibility
+                                scrollOffset = Math.max(0, tempY - visibleBottom + lineHeight * 3.5);
+                                scrollOffset = Math.min(scrollOffset, maxScrollOffset);
+                            }
+                        } else {
+                            currentLine++;
+                            currentChar = 0;
+                            lastCharTime = time + lineDelay;
+                            if (currentLine >= typingLines.length) {
+                                typingDone = true;
+                                phase = 'options';
+                                isTyping = false; // Allow manual scroll after typing
+                                userInput = ''; // Reset input
+                                setupInputHandler(); // Ensure input handler is set up
+                            }
+                        }
+                    }
+                }
+
+                // Advance no-response typing
+                if (phase === 'no_typing' && time >= noLastCharTime) {
+                    isTyping = true; // Disable manual scroll during typing
+                    if (noCurrentLine < noResponseLines.length) {
+                        if (noCurrentChar < noResponseLines[noCurrentLine].length) {
+                            noDisplayedText[noCurrentLine] += noResponseLines[noCurrentLine][noCurrentChar];
+                            window.playTypewriterSound(); // Play typewriter sound
+                            noCurrentChar++;
+                            noLastCharTime = time + charDelay;
+                            
+                            // Auto-scroll if current line is below visible area (calculate without redraw to avoid flicker)
+                            // Calculate absolute position from padY (not affected by scrollOffset)
+                            let tempY = padY;
+                            // Add all displayed text lines
+                            for (let i = 0; i < displayedText.length; i++) {
+                                if (displayedText[i].length > 0) {
+                                    const wrapped = wrapText(displayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            // Add option line
+                            tempY += lineHeight;
+                            // Add no response lines up to current
+                            for (let i = 0; i <= noCurrentLine; i++) {
+                                if (noDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(noDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            const lineBottom = tempY - scrollOffset;
+                            const visibleBottom = canvasH - padY;
+                            if (lineBottom > visibleBottom) {
+                                // Scroll extra 3-4 lines ahead for better visibility
+                                scrollOffset = Math.max(0, tempY - visibleBottom + lineHeight * 3.5);
+                                scrollOffset = Math.min(scrollOffset, maxScrollOffset);
+                            }
+                        } else {
+                            noCurrentLine++;
+                            noCurrentChar = 0;
+                            noLastCharTime = time + lineDelay;
+                            if (noCurrentLine >= noResponseLines.length) {
+                                noTypingDone = true;
+                                phase = 'no_done';
+                                // Immediately start typing first part of final dialogue
+                                phase = 'final_typing';
+                                finalCurrentLine = 0; // Start from first line
+                                finalCurrentChar = 0;
+                                finalLastCharTime = time + lineDelay;
+                            }
+                        }
+                    }
+                }
+                
+                // Advance final typing ("That's it." and "Are you sure you want to proceed?")
+                if (phase === 'final_typing' && time >= finalLastCharTime) {
+                    if (finalCurrentLine < finalLines.length) {
+                        isTyping = true;
+                        if (finalCurrentChar < finalLines[finalCurrentLine].length) {
+                            finalDisplayedText[finalCurrentLine] += finalLines[finalCurrentLine][finalCurrentChar];
+                            window.playTypewriterSound();
+                            finalCurrentChar++;
+                            finalLastCharTime = time + charDelay;
+                            
+                            // Auto-scroll
+                            let tempY = padY;
+                            for (let i = 0; i < displayedText.length; i++) {
+                                if (displayedText[i].length > 0) {
+                                    const wrapped = wrapText(displayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            tempY += lineHeight; // option line
+                            for (let i = 0; i < noDisplayedText.length; i++) {
+                                if (noDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(noDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            for (let i = 0; i <= finalCurrentLine; i++) {
+                                if (finalDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(finalDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            const lineBottom = tempY - scrollOffset;
+                            const visibleBottom = canvasH - padY;
+                            if (lineBottom > visibleBottom - lineHeight * 2) {
+                                scrollOffset = Math.max(0, tempY - visibleBottom + lineHeight);
+                                scrollOffset = Math.min(scrollOffset, maxScrollOffset);
+                            }
+                        } else {
+                            finalCurrentLine++;
+                            finalCurrentChar = 0;
+                            finalLastCharTime = time + lineDelay;
+                            if (finalCurrentLine >= finalLines.length) {
+                                // Done typing final lines, show second options
+                                phase = 'final_options';
+                                isTyping = false;
+                                redrawCanvas(time); // Trigger redraw to show options
+                            }
+                        }
+                    }
+                }
+                
+                // Advance final continue typing ("All right..." lines after second Yes)
+                if (phase === 'final_continue' && time >= finalContinueLastCharTime) {
+                    if (finalContinueCurrentLine < finalContinueLines.length) {
+                        isTyping = true;
+                        if (finalContinueCurrentChar < finalContinueLines[finalContinueCurrentLine].length) {
+                            finalContinueDisplayedText[finalContinueCurrentLine] += finalContinueLines[finalContinueCurrentLine][finalContinueCurrentChar];
+                            window.playTypewriterSound();
+                            finalContinueCurrentChar++;
+                            finalContinueLastCharTime = time + charDelay;
+                            
+                            // Auto-scroll
+                            let tempY = padY;
+                            for (let i = 0; i < displayedText.length; i++) {
+                                if (displayedText[i].length > 0) {
+                                    const wrapped = wrapText(displayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            tempY += lineHeight; // first option line
+                            for (let i = 0; i < noDisplayedText.length; i++) {
+                                if (noDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(noDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            for (let i = 0; i < finalDisplayedText.length; i++) {
+                                if (finalDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(finalDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            tempY += lineHeight; // second option line (">yes")
+                            for (let i = 0; i <= finalContinueCurrentLine; i++) {
+                                if (finalContinueDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(finalContinueDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            const lineBottom = tempY - scrollOffset;
+                            const visibleBottom = canvasH - padY;
+                            if (lineBottom > visibleBottom - lineHeight * 2) {
+                                scrollOffset = Math.max(0, tempY - visibleBottom + lineHeight);
+                                scrollOffset = Math.min(scrollOffset, maxScrollOffset);
+                            }
+                        } else {
+                            const completedLine = finalContinueCurrentLine;
+                            finalContinueCurrentLine++;
+                            finalContinueCurrentChar = 0;
+                            finalContinueLastCharTime = time + lineDelay;
+                            
+                            // Auto-scroll after line completion
+                            let tempY = padY;
+                            for (let i = 0; i < displayedText.length; i++) {
+                                if (displayedText[i].length > 0) {
+                                    const wrapped = wrapText(displayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            tempY += lineHeight; // first option line
+                            for (let i = 0; i < noDisplayedText.length; i++) {
+                                if (noDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(noDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            for (let i = 0; i < finalDisplayedText.length; i++) {
+                                if (finalDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(finalDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            tempY += lineHeight; // second option line (">yes")
+                            for (let i = 0; i <= completedLine; i++) {
+                                if (finalContinueDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(finalContinueDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            tempY += lineHeight;
+                            const lineBottom = tempY - scrollOffset;
+                            const visibleBottom = canvasH - padY;
+                            if (lineBottom > visibleBottom) {
+                                scrollOffset = Math.max(0, tempY - visibleBottom + lineHeight);
+                                scrollOffset = Math.min(scrollOffset, maxScrollOffset);
+                            }
+                            
+                            if (finalContinueCurrentLine >= finalContinueLines.length) {
+                                finalTypingDone = true;
+                                phase = 'final_done';
+                                isTyping = false;
+                                window._leftCanvasDone = true;
+                            }
+                        }
+                    }
+                }
+                
+                // Check if right canvas finished line 13, wait 1 second then start hiring dialogue
+                if (phase === 'final_done' && window._rightFinalLine13Done && hiringLastCharTime < 0) {
+                    // Check if 1 second has passed since right canvas paused at line 13
+                    if (window._rightPausedAtLine13Time >= 0 && time >= window._rightPausedAtLine13Time + 1000) {
+                        phase = 'hiring_typing';
+                        hiringCurrentLine = 0;
+                        hiringCurrentChar = 0;
+                        hiringDisplayedText = hiringLines.map(() => '');
+                        hiringLastCharTime = time + lineDelay;
+                        isTyping = true;
+                    }
+                }
+                
+                // Advance hiring typing
+                if (phase === 'hiring_typing' && time >= hiringLastCharTime) {
+                    isTyping = true;
+                    if (hiringCurrentLine < hiringLines.length) {
+                        if (hiringCurrentChar < hiringLines[hiringCurrentLine].length) {
+                            hiringDisplayedText[hiringCurrentLine] += hiringLines[hiringCurrentLine][hiringCurrentChar];
+                            window.playTypewriterSound();
+                            hiringCurrentChar++;
+                            hiringLastCharTime = time + charDelay;
+                            
+                            // Auto-scroll
+                            let tempY = padY;
+                            for (let i = 0; i < displayedText.length; i++) {
+                                if (displayedText[i].length > 0) {
+                                    const wrapped = wrapText(displayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            tempY += lineHeight; // first option line
+                            for (let i = 0; i < noDisplayedText.length; i++) {
+                                if (noDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(noDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            for (let i = 0; i < finalDisplayedText.length; i++) {
+                                if (finalDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(finalDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            // Yes/No options are no longer shown in hiring phases, so don't add space for them
+                            for (let i = 0; i < finalContinueDisplayedText.length; i++) {
+                                if (finalContinueDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(finalContinueDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            for (let i = 0; i <= hiringCurrentLine; i++) {
+                                if (hiringDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(hiringDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            const lineBottom = tempY - scrollOffset;
+                            const visibleBottom = canvasH - padY;
+                            if (lineBottom > visibleBottom - lineHeight * 2) {
+                                scrollOffset = Math.max(0, tempY - visibleBottom + lineHeight);
+                                scrollOffset = Math.min(scrollOffset, maxScrollOffset);
+                            }
+                        } else {
+                            hiringCurrentLine++;
+                            hiringCurrentChar = 0;
+                            hiringLastCharTime = time + lineDelay;
+                            if (hiringCurrentLine >= hiringLines.length) {
+                                hiringTypingDone = true;
+                                phase = 'hiring_options';
+                                isTyping = false;
+                                hiringUserInput = '';
+                                setupInputHandler();
+                            }
+                        }
+                    }
+                }
+                
+                // Advance hiring response typing (after user inputs "no")
+                if (phase === 'hiring_response' && time >= hiringResponseLastCharTime) {
+                    isTyping = true;
+                    if (hiringResponseCurrentLine < hiringResponseLines.length) {
+                        if (hiringResponseCurrentChar < hiringResponseLines[hiringResponseCurrentLine].length) {
+                            hiringResponseDisplayedText[hiringResponseCurrentLine] += hiringResponseLines[hiringResponseCurrentLine][hiringResponseCurrentChar];
+                            window.playTypewriterSound();
+                            hiringResponseCurrentChar++;
+                            hiringResponseLastCharTime = time + charDelay;
+                            
+                            // Auto-scroll
+                            let tempY = padY;
+                            for (let i = 0; i < displayedText.length; i++) {
+                                if (displayedText[i].length > 0) {
+                                    const wrapped = wrapText(displayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            tempY += lineHeight; // first option line
+                            for (let i = 0; i < noDisplayedText.length; i++) {
+                                if (noDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(noDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            for (let i = 0; i < finalDisplayedText.length; i++) {
+                                if (finalDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(finalDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            // Yes/No options are no longer shown in hiring phases, so don't add space for them
+                            for (let i = 0; i < finalContinueDisplayedText.length; i++) {
+                                if (finalContinueDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(finalContinueDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            for (let i = 0; i < hiringDisplayedText.length; i++) {
+                                if (hiringDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(hiringDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            tempY += lineHeight; // hiring input line
+                            for (let i = 0; i <= hiringResponseCurrentLine; i++) {
+                                if (hiringResponseDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(hiringResponseDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            const lineBottom = tempY - scrollOffset;
+                            const visibleBottom = canvasH - padY;
+                            if (lineBottom > visibleBottom - lineHeight * 2) {
+                                scrollOffset = Math.max(0, tempY - visibleBottom + lineHeight);
+                                scrollOffset = Math.min(scrollOffset, maxScrollOffset);
+                            }
+                        } else {
+                            hiringResponseCurrentLine++;
+                            hiringResponseCurrentChar = 0;
+                            hiringResponseLastCharTime = time + lineDelay;
+                            // Check if we just finished line 0 ("Exactly.")
+                            if (hiringResponseCurrentLine === 1) {
+                                hiringResponseExactlyDoneTime = time; // Record time when "Exactly." finished
+                                window._hiringResponseExactlyDoneTime = time; // Expose globally for right canvas
+                                hiringResponseTypingDone = true;
+                                phase = 'done'; // Left canvas is done, only right canvas will continue
+                                isTyping = false;
+                            }
+                        }
+                    }
+                }
+                
+                // Check if right canvas finished, wait 1 second then start closing dialogue
+                if (phase === 'done' && window._rightCanvasFinished && window._rightCanvasFinishedTime >= 0 && closingStartTime < 0) {
+                    // Wait 1 second after right canvas finishes
+                    if (time >= window._rightCanvasFinishedTime + 1000) {
+                        phase = 'closing_typing';
+                        closingStartTime = time;
+                        closingCurrentLine = 0;
+                        closingCurrentChar = 0;
+                        closingDisplayedText = closingLines.map(() => '');
+                        closingLastCharTime = time + lineDelay;
+                        isTyping = true;
+                        redrawCanvas(time); // Force initial redraw when starting closing dialogue
+                    }
+                }
+                
+                // Advance closing typing
+                if (phase === 'closing_typing' && time >= closingLastCharTime) {
+                    isTyping = true;
+                    if (closingCurrentLine < closingLines.length) {
+                        if (closingCurrentChar < closingLines[closingCurrentLine].length) {
+                            closingDisplayedText[closingCurrentLine] += closingLines[closingCurrentLine][closingCurrentChar];
+                            window.playTypewriterSound();
+                            closingCurrentChar++;
+                            closingLastCharTime = time + charDelay;
+                            
+                            // Auto-scroll
+                            let tempY = padY;
+                            for (let i = 0; i < displayedText.length; i++) {
+                                if (displayedText[i].length > 0) {
+                                    const wrapped = wrapText(displayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            tempY += lineHeight; // first option ">no" line
+                            for (let i = 0; i < noDisplayedText.length; i++) {
+                                if (noDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(noDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            for (let i = 0; i < finalDisplayedText.length; i++) {
+                                if (finalDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(finalDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            // Yes/No options disappeared after selection, no space
+                            for (let i = 0; i < finalContinueDisplayedText.length; i++) {
+                                if (finalContinueDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(finalContinueDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            for (let i = 0; i < hiringDisplayedText.length; i++) {
+                                if (hiringDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(hiringDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            tempY += lineHeight; // hiring input line
+                            for (let i = 0; i < hiringResponseDisplayedText.length; i++) {
+                                if (hiringResponseDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(hiringResponseDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            for (let i = 0; i <= closingCurrentLine; i++) {
+                                if (closingDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(closingDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            const lineBottom = tempY - scrollOffset;
+                            const visibleBottom = canvasH - padY;
+                            if (lineBottom > visibleBottom - lineHeight * 2) {
+                                scrollOffset = Math.max(0, tempY - visibleBottom + lineHeight);
+                                scrollOffset = Math.min(scrollOffset, maxScrollOffset);
+                            }
+                            
+                            // Force redraw on every character
+                            redrawCanvas(time);
+                        } else {
+                            closingCurrentLine++;
+                            closingCurrentChar = 0;
+                            closingLastCharTime = time + lineDelay;
+                            
+                            // Auto-scroll after line completion
+                            let tempY = padY;
+                            for (let i = 0; i < displayedText.length; i++) {
+                                if (displayedText[i].length > 0) {
+                                    const wrapped = wrapText(displayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            tempY += lineHeight; // first option ">no" line
+                            for (let i = 0; i < noDisplayedText.length; i++) {
+                                if (noDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(noDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            for (let i = 0; i < finalDisplayedText.length; i++) {
+                                if (finalDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(finalDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            // Yes/No options disappeared after selection, no space
+                            for (let i = 0; i < finalContinueDisplayedText.length; i++) {
+                                if (finalContinueDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(finalContinueDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            for (let i = 0; i < hiringDisplayedText.length; i++) {
+                                if (hiringDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(hiringDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            tempY += lineHeight; // hiring input line
+                            for (let i = 0; i < hiringResponseDisplayedText.length; i++) {
+                                if (hiringResponseDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(hiringResponseDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            for (let i = 0; i < closingCurrentLine; i++) {
+                                if (closingDisplayedText[i].length > 0) {
+                                    const wrapped = wrapText(closingDisplayedText[i], `${fontSize}px "Space Mono", Consolas, monospace`, textMaxWidth);
+                                    tempY += wrapped.length * lineHeight;
+                                }
+                            }
+                            const lineBottom = tempY - scrollOffset;
+                            const visibleBottom = canvasH - padY;
+                            if (lineBottom > visibleBottom - lineHeight * 2) {
+                                scrollOffset = Math.max(0, tempY - visibleBottom + lineHeight);
+                                scrollOffset = Math.min(scrollOffset, maxScrollOffset);
+                            }
+                            
+                            if (closingCurrentLine >= closingLines.length) {
+                                closingTypingDone = true;
+                                isTyping = false;
+                                // Wait 3 seconds then enter movement mode with fade out
+                                const closingDoneTime = time;
+                                // Use a flag to track when closing is done, then check in animate loop
+                                window._closingDoneTime = time;
+                            }
+                            
+                            // Force redraw after line completion
+                            redrawCanvas(time);
+                        }
+                    }
+                }
+
+                // Redraw for cursor blink
+                const blinkState = Math.floor(time / 500) % 2;
+                // Don't redraw if fade out animation is active (to prevent canvas from being redrawn as fully opaque)
+                if (canvasFadeOutStartTime < 0 && (blinkState !== lastBlinkState || phase === 'typing' || phase === 'no_typing' || phase === 'final_typing' || phase === 'final_options' || phase === 'final_continue' || phase === 'hiring_typing' || phase === 'hiring_options' || phase === 'hiring_response' || phase === 'closing_typing')) {
+                    lastBlinkState = blinkState;
+                    redrawCanvas(time);
+                }
+            };
+        })();
+
+        // ---- Right side text area on north wall ----
+        (function() {
+            const rightCanvasW = 2048;
+            const rightCanvasH = 1920; // Increased height for more vertical space
+            const rightCanvas = document.createElement('canvas');
+            rightCanvas.width = rightCanvasW;
+            rightCanvas.height = rightCanvasH;
+            const rightCtx = rightCanvas.getContext('2d');
+            rightCtx.imageSmoothingEnabled = false;
+
+            const rightTexture = new THREE.CanvasTexture(rightCanvas);
+            rightTexture.minFilter = THREE.NearestFilter;
+            rightTexture.magFilter = THREE.NearestFilter;
+            rightTexture.generateMipmaps = false;
+
+            // Calculate positions: left canvas width 4.5, center -1.75, right edge at 0.5
+            // Spacing of 0: right canvas left edge at 0.5 (touching left canvas)
+            // Right canvas: width 4.5, center at 0.5 + 2.25 = 2.75, right edge at 5.0 (at wall edge)
+            const rightPlaneW = 4.5; // Keep same size as left for consistent font appearance
+            const rightPlaneH = rightPlaneW * (rightCanvasH / rightCanvasW);
+            const rightMat = new THREE.MeshBasicMaterial({
+                map: rightTexture,
+                transparent: true,
+                side: THREE.DoubleSide,
+                depthWrite: false,
+                opacity: 1 // Explicitly set initial opacity for fade out animation
+            });
+            const rightPlane = new THREE.Mesh(new THREE.PlaneGeometry(rightPlaneW, rightPlaneH), rightMat);
+
+            // Right side of north wall - spacing of 0 (touching left canvas)
+            // Left canvas right edge: 0.5
+            // Right canvas: width 4.5, center at 2.75, left edge at 0.5, spacing = 0.5 - 0.5 = 0.0 ✓
+            rightPlane.position.set(2.75, wallHeight - rightPlaneH / 2 - 1.0, -half + 0.05);
+            scene.add(rightPlane);
+            
+            // Expose material for fade out animation
+            window._rightCanvasMaterial = rightMat;
+            window._rightCanvasPlane = rightPlane;
+            
+            // Border removed
+
+            // Right canvas typing state
+            let rightPhase = 'idle'; // 'idle' | 'typing' | 'options1' | 'response1' | 'options2' | 'final' | 'paused' | 'done'
+            window._rightPhase = rightPhase; // Expose for input handler
+            let rightPausedAtLine13Time = -1; // Time when line 13 finished (for 1 second delay before left canvas starts)
+            const rightTypingLines = [
+                "Come on.",
+                "Don't listen to all the crap he said on the left.",
+                "I never said I was experimenting.",
+                "That was a joke, one time.",
+                "He refuses to let it go.",
+                "And I'm not pretending that I don't care.",
+                "I really just don't.",
+                "Other than that, he's mostly right.",
+                "It did take me a long time to accept that most people won't care about the stuff I make.",
+                "I'm fine with it now. I think.",
+                "Okay, that's enough self analysis.",
+                "I'm not really good at this, and it isn't therapy anyway.",
+                "Anyway, I've been timing this.",
+                "It takes you about 110 seconds to get here.",
+                "Almost two minutes of text, and awful typing sound effects.",
+                "Impressive.",
+                "I mean your tolerance for bullshit.",
+                "You've already made it here, so I guess you don't mind some multiple choice questions.",
+                "Only ONE of the following statements is FALSE.",
+                "Which one is it?",
+                "1. I'm very good at visuals.",
+                "2. 1+1 = 2.",
+                "3. There are 24 hours in a day."
+            ];
+            
+            // Response after first question (option 1)
+            // Line index 5 ("Only ONE of the statements is FALSE.") is clickable during options2 phase
+            const rightResponse1Lines = [
+                "Bingo.",
+                "You're smarter than I think.",
+                "Well, haha...",
+                "I'm just kidding, that one was obvious.",
+                "Here's another one.",
+                "Only ONE of the statements is FALSE.",
+                "Which one is it?",
+                "1. Even my feelings have feelings, and I want to emphasize this in my every work.",
+                "2. To me, attitude is the most important thing in every interactive media.",
+                "3. I would love to make a little prank and frustrate my players a little bit, but not too much."
+            ];
+            const rightClickableLineIndex = 5; // Index of the clickable line in rightResponse1Lines
+            
+            // Final text after clicking the clickable line
+            const rightFinalLines = [
+                "So now you get what I mean.",
+                "Congrats, you made it to the end.",
+                "I guess that's all you really need to know about me.",
+                "My games probably say more than I ever could, so if you have time, try them.",
+                "The link is right here.",
+                "I've hidden most of my stuff because I don't think that it's ready yet.",
+                "That doesn't mean I'm proud of the ones that are up there…",
+                "It just means I'm okay with showing them, and I do appreciate any feedback.",
+                "Also, most people would call this an artist statement.",
+                "I feel weird calling myself an artist, and I definitely don't feel qualified enough to make a statement.",
+                "So I'm just trying to make this as honest as possible, and hopefully not too boring.",
+                "One last thing: I genuinely appreciate anyone who makes it this far or tries my games.",
+                "Seriously. Thank you.",
+                "I hope things work out for you, in whatever future you end up in.",
+                "Oh shit, wait…",
+                "If you're a recruiter, PLEASE ignore everything we just said.",
+                "None of it is true.",
+                "I'm extremely responsible, highly motivated, and very normal.",
+                "An adaptable, proactive team player who thrives in collaborative environments.",
+                "I will absolutely do whatever it takes to get a job.",
+                "For real.",
+                "Here's my email: yuhengye@usc.edu",
+                "",
+                "See you later :)"
+            ];
+            const rightFinalLinkLineIndex = 4; // "The link is right here."
+            const rightFinalEmailLineIndex = 21; // "Here's my email: yuhengye@usc.edu"
+            
+            const rightCharDelay = 2; // 10x speed for testing
+            const rightLineDelay = 5; // 10x speed for testing
+            const rightFontSize = 64;
+            const rightLineHeight = 90;
+            const rightPadX = 40;
+            const rightPadY = 50;
+            
+            let rightCurrentLine = 0;
+            let rightCurrentChar = 0;
+            let rightDisplayedText = rightTypingLines.map(() => '');
+            let rightLastCharTime = -1;
+            let rightTypingDone = false;
+            let rightStartDelayTime = -1; // Time when left canvas finished (for 1 second delay)
+            
+            // Response1 typing state
+            let rightResponse1CurrentLine = 0;
+            let rightResponse1CurrentChar = 0;
+            let rightResponse1DisplayedText = rightResponse1Lines.map(() => '');
+            let rightResponse1LastCharTime = -1;
+            let rightResponse1TypingDone = false;
+            
+            // Final typing state
+            let rightFinalCurrentLine = 0;
+            let rightFinalCurrentChar = 0;
+            let rightFinalDisplayedText = rightFinalLines.map(() => '');
+            let rightFinalLastCharTime = -1;
+            let rightFinalTypingDone = false;
+            
+            // Clickable line state (for "Only ONE of the statements is FALSE.")
+            let rightClickableLineClicked = false;
+            let rightClickableLineHovered = false;
+            let rightClickableLineY = 0;
+            let rightClickableLineX = 0;
+            let rightClickableLineWidth = 0;
+            
+            // Clickable lines in final text
+            let rightLinkLineY = 0;
+            let rightLinkLineX = 0;
+            let rightLinkLineWidth = 0;
+            let rightLinkLineHovered = false;
+            
+            let rightEmailLineY = 0;
+            let rightEmailLineX = 0;
+            let rightEmailLineWidth = 0;
+            let rightEmailLineHovered = false;
+            
+            // Clipboard notification
+            let rightClipboardNotification = '';
+            let rightClipboardNotificationTime = 0;
+            
+            // Scroll state for right canvas
+            let rightScrollOffset = 0;
+            let rightMaxScrollOffset = 0;
+            let rightIsTyping = false;
+            
+            // Word-wrap helper for right canvas
+            function rightWrapText(text, font, maxWidth) {
+                rightCtx.font = font;
+                const words = text.split(' ');
+                const lines = [];
+                let current = '';
+                for (const word of words) {
+                    const test = current ? current + ' ' + word : word;
+                    if (rightCtx.measureText(test).width > maxWidth && current) {
+                        lines.push(current);
+                        current = word;
+                    } else {
+                        current = test;
+                    }
+                }
+                if (current) lines.push(current);
+                return lines;
+            }
+            
+            // Helper: draw text with word-wrap for right canvas
+            const rightTextMaxWidth = (rightCanvasW - rightPadX * 2) * 0.75; // 75% width for earlier breaks
+            function rightDrawWrappedText(text, startY, font) {
+                rightCtx.font = font;
+                const wrapped = rightWrapText(text, font, rightTextMaxWidth);
+                for (let j = 0; j < wrapped.length; j++) {
+                    rightCtx.fillText(wrapped[j], rightPadX, startY + j * rightLineHeight);
+                }
+                const lastWrapped = wrapped[wrapped.length - 1] || '';
+                return {
+                    totalLines: wrapped.length,
+                    lastLineWidth: rightCtx.measureText(lastWrapped).width,
+                    lastLineY: startY + (wrapped.length - 1) * rightLineHeight
+                };
+            }
+            
+            // Input field for right canvas options
+            let rightUserInput = ''; // User's input text (1, 2, or 3)
+            let rightChosenOption = null; // 1 | 2 | 3 | null
+            let rightOptions1Input = ''; // Store the input from options1 phase (e.g., ">1") to display after
+            let rightLastBlinkState = -1;
+            let rightLastDynamicOptionY = 0;
+            
+            // No separate start function needed; _updateRightCanvas checks _leftCanvasDone each frame
+            
+            function redrawRightCanvas(time) {
+                rightCtx.clearRect(0, 0, rightCanvasW, rightCanvasH);
+                rightCtx.imageSmoothingEnabled = false;
+
+                const rightMainFont = `${rightFontSize}px "Space Mono", Consolas, monospace`;
+
+                // Draw typed lines with word wrap
+                rightCtx.fillStyle = 'white';
+                rightCtx.textAlign = 'left';
+                rightCtx.textBaseline = 'top';
+
+                let rightYOffset = rightPadY - rightScrollOffset;
+                let rightLastInfo = null;
+                
+                // Draw initial typing lines
+                for (let i = 0; i < rightDisplayedText.length; i++) {
+                    if (rightDisplayedText[i].length > 0) {
+                        rightLastInfo = rightDrawWrappedText(rightDisplayedText[i], rightYOffset, rightMainFont);
+                        rightYOffset += rightLastInfo.totalLines * rightLineHeight;
+                    }
+                }
+
+                // Blinking cursor during typing
+                if (rightPhase === 'typing' && rightLastInfo) {
+                    rightCtx.font = rightMainFont;
+                    if (Math.floor(time / 500) % 2 === 0) {
+                        rightCtx.fillStyle = 'white';
+                        rightCtx.fillRect(rightPadX + rightLastInfo.lastLineWidth + 4, rightLastInfo.lastLineY + 2, 4, rightFontSize - 4);
+                    }
+                }
+
+                // Draw response1 lines (after first question)
+                if (rightPhase === 'response1' || rightPhase === 'options2' || rightPhase === 'final' || rightPhase === 'paused' || rightPhase === 'done') {
+                    // Draw the saved input from options1 (e.g., ">1")
+                    if (rightOptions1Input && (rightPhase === 'response1' || rightPhase === 'options2' || rightPhase === 'final' || rightPhase === 'paused' || rightPhase === 'done')) {
+                        rightCtx.font = rightMainFont;
+                        rightCtx.fillStyle = 'white';
+                        rightCtx.fillText(rightOptions1Input, rightPadX, rightYOffset);
+                        rightYOffset += rightLineHeight;
+                    }
+                    
+                    for (let i = 0; i < rightResponse1DisplayedText.length; i++) {
+                        if (rightResponse1DisplayedText[i].length > 0) {
+                            // Check if this is the clickable line (index 5) and we're past typing
+                            if (i === rightClickableLineIndex && (rightPhase === 'options2' || rightPhase === 'final' || rightPhase === 'done')) {
+                                const clickableText = rightResponse1DisplayedText[i];
+                                rightCtx.font = rightMainFont;
+                                const clickableWidth = rightCtx.measureText(clickableText).width;
+                                rightClickableLineX = rightPadX;
+                                // Store absolute Y position for hit detection
+                                rightClickableLineY = rightYOffset + rightScrollOffset;
+                                rightClickableLineWidth = clickableWidth;
+                                
+                                if (rightClickableLineHovered) {
+                                    // Hovered: white background, black text (height matches font size only)
+                                    rightCtx.fillStyle = 'white';
+                                    rightCtx.fillRect(rightPadX - 4, rightYOffset - 2, clickableWidth + 8, rightFontSize + 4);
+                                    rightCtx.fillStyle = 'black';
+                                    rightCtx.fillText(clickableText, rightPadX, rightYOffset);
+                                    rightCtx.fillStyle = 'white'; // Reset to white for subsequent text
+                                } else {
+                                    // Normal: white text
+                                    rightCtx.fillStyle = 'white';
+                                    rightCtx.fillText(clickableText, rightPadX, rightYOffset);
+                                }
+                                rightYOffset += rightLineHeight;
+                            } else {
+                                rightLastInfo = rightDrawWrappedText(rightResponse1DisplayedText[i], rightYOffset, rightMainFont);
+                                rightYOffset += rightLastInfo.totalLines * rightLineHeight;
+                            }
+                        }
+                    }
+                    
+                    // Blinking cursor during response1 typing
+                    if (rightPhase === 'response1' && rightLastInfo) {
+                        rightCtx.font = rightMainFont;
+                        if (Math.floor(time / 500) % 2 === 0) {
+                            rightCtx.fillStyle = 'white';
+                            rightCtx.fillRect(rightPadX + rightLastInfo.lastLineWidth + 4, rightLastInfo.lastLineY + 2, 4, rightFontSize - 4);
+                        }
+                    }
+                }
+
+                // Options Y position based on wrapped text
+                const rightDynamicOptionY = rightYOffset;
+                rightLastDynamicOptionY = rightDynamicOptionY;
+                
+                // Draw input field if in options1 or options2 phase
+                if (rightPhase === 'options1' || rightPhase === 'options2') {
+                    rightCtx.font = rightMainFont;
+                    rightCtx.fillStyle = 'white';
+                    const inputText = '>' + rightUserInput; // Add > at the beginning
+                    rightCtx.fillText(inputText, rightPadX, rightDynamicOptionY);
+                    
+                    // Blinking cursor
+                    if (Math.floor(time / 500) % 2 === 0) {
+                        const inputWidth = rightCtx.measureText(inputText).width;
+                        rightCtx.fillRect(rightPadX + inputWidth + 4, rightDynamicOptionY + 2, 4, rightFontSize - 4);
+                    }
+                    rightYOffset += rightLineHeight;
+                }
+                
+                // Draw final lines (after clicking, including paused state)
+                if (rightPhase === 'final' || rightPhase === 'paused' || rightPhase === 'done') {
+                    for (let i = 0; i < rightFinalDisplayedText.length; i++) {
+                        if (rightFinalDisplayedText[i].length > 0) {
+                            // Check if this is the link line or email line (clickable in done phase)
+                            const isLinkLine = (i === rightFinalLinkLineIndex);
+                            const isEmailLine = (i === rightFinalEmailLineIndex);
+                            
+                            if (isLinkLine || isEmailLine) {
+                                const lineText = rightFinalDisplayedText[i];
+                                rightCtx.font = rightMainFont;
+                                const lineWidth = rightCtx.measureText(lineText).width;
+                                
+                                if (isLinkLine) {
+                                    rightLinkLineX = rightPadX;
+                                    rightLinkLineY = rightYOffset + rightScrollOffset;
+                                    rightLinkLineWidth = lineWidth;
+                                    
+                                    if (rightLinkLineHovered) {
+                                        rightCtx.fillStyle = 'white';
+                                        rightCtx.fillRect(rightPadX - 4, rightYOffset - 2, lineWidth + 8, rightFontSize + 4);
+                                        rightCtx.fillStyle = 'black';
+                                        rightCtx.fillText(lineText, rightPadX, rightYOffset);
+                                        rightCtx.fillStyle = 'white';
+                                    } else {
+                                        // Underlined white text
+                                        rightCtx.fillStyle = 'white';
+                                        rightCtx.fillText(lineText, rightPadX, rightYOffset);
+                                        rightCtx.fillRect(rightPadX, rightYOffset + rightFontSize + 2, lineWidth, 2);
+                                    }
+                                    // Update rightLastInfo for cursor positioning
+                                    rightLastInfo = {
+                                        lastLineWidth: lineWidth,
+                                        lastLineY: rightYOffset,
+                                        totalLines: 1
+                                    };
+                                } else if (isEmailLine) {
+                                    rightEmailLineX = rightPadX;
+                                    rightEmailLineY = rightYOffset + rightScrollOffset;
+                                    rightEmailLineWidth = lineWidth;
+                                    
+                                    if (rightEmailLineHovered) {
+                                        rightCtx.fillStyle = 'white';
+                                        rightCtx.fillRect(rightPadX - 4, rightYOffset - 2, lineWidth + 8, rightFontSize + 4);
+                                        rightCtx.fillStyle = 'black';
+                                        rightCtx.fillText(lineText, rightPadX, rightYOffset);
+                                        rightCtx.fillStyle = 'white';
+                                    } else {
+                                        // Underlined white text
+                                        rightCtx.fillStyle = 'white';
+                                        rightCtx.fillText(lineText, rightPadX, rightYOffset);
+                                        rightCtx.fillRect(rightPadX, rightYOffset + rightFontSize + 2, lineWidth, 2);
+                                    }
+                                    // Update rightLastInfo for cursor positioning
+                                    rightLastInfo = {
+                                        lastLineWidth: lineWidth,
+                                        lastLineY: rightYOffset,
+                                        totalLines: 1
+                                    };
+                                }
+                                rightYOffset += rightLineHeight;
+                            } else {
+                                rightLastInfo = rightDrawWrappedText(rightFinalDisplayedText[i], rightYOffset, rightMainFont);
+                                rightYOffset += rightLastInfo.totalLines * rightLineHeight;
+                            }
+                        } else if (rightFinalLines[i] === '') {
+                            // Empty line: add spacing
+                            rightYOffset += rightLineHeight;
+                        }
+                    }
+                    
+                    // Draw clipboard notification
+                    if (rightClipboardNotification && performance.now() - rightClipboardNotificationTime < 2000) {
+                        const notifFont = `${rightFontSize * 0.7}px "Space Mono", Consolas, monospace`;
+                        const notifH = 70;
+                        const notifW = 500;
+                        const notifX = rightCanvasW / 2 - notifW / 2;
+                        const notifY = rightCanvasH - 120;
+                        rightCtx.font = notifFont;
+                        rightCtx.fillStyle = 'white';
+                        rightCtx.fillRect(notifX, notifY, notifW, notifH);
+                        rightCtx.fillStyle = 'black';
+                        rightCtx.textAlign = 'center';
+                        rightCtx.textBaseline = 'middle';
+                        rightCtx.fillText(rightClipboardNotification, rightCanvasW / 2, notifY + notifH / 2);
+                        rightCtx.textAlign = 'left';
+                        rightCtx.textBaseline = 'top';
+                        rightCtx.fillStyle = 'white';
+                    } else {
+                        rightClipboardNotification = '';
+                    }
+                    
+                    // Blinking cursor during final typing (not in paused state)
+                    if (rightPhase === 'final' && rightLastInfo) {
+                        rightCtx.font = rightMainFont;
+                        if (Math.floor(time / 500) % 2 === 0) {
+                            rightCtx.fillStyle = 'white';
+                            rightCtx.fillRect(rightPadX + rightLastInfo.lastLineWidth + 4, rightLastInfo.lastLineY + 2, 4, rightFontSize - 4);
+                        }
+                    }
+                }
+                
+                // Calculate total content height for scrolling
+                let rightCalcY = rightPadY;
+                for (let i = 0; i < rightDisplayedText.length; i++) {
+                    if (rightDisplayedText[i].length > 0) {
+                        const wrapped = rightWrapText(rightDisplayedText[i], rightMainFont, rightTextMaxWidth);
+                        rightCalcY += wrapped.length * rightLineHeight;
+                    }
+                }
+                
+                if (rightPhase === 'response1' || rightPhase === 'options2' || rightPhase === 'final' || rightPhase === 'paused' || rightPhase === 'done') {
+                    // Account for the saved input line from options1 (e.g., ">1")
+                    if (rightOptions1Input) {
+                        rightCalcY += rightLineHeight;
+                    }
+                    for (let i = 0; i < rightResponse1DisplayedText.length; i++) {
+                        if (rightResponse1DisplayedText[i].length > 0) {
+                            const wrapped = rightWrapText(rightResponse1DisplayedText[i], rightMainFont, rightTextMaxWidth);
+                            rightCalcY += wrapped.length * rightLineHeight;
+                        }
+                    }
+                }
+                
+                if (rightPhase === 'options1' || rightPhase === 'options2') {
+                    rightCalcY += rightLineHeight;
+                }
+                
+                if (rightPhase === 'final' || rightPhase === 'paused' || rightPhase === 'done') {
+                    for (let i = 0; i < rightFinalDisplayedText.length; i++) {
+                        if (rightFinalDisplayedText[i].length > 0) {
+                            const wrapped = rightWrapText(rightFinalDisplayedText[i], rightMainFont, rightTextMaxWidth);
+                            rightCalcY += wrapped.length * rightLineHeight;
+                        } else if (rightFinalLines[i] === '') {
+                            // Empty line spacing
+                            rightCalcY += rightLineHeight;
+                        }
+                    }
+                }
+                
+                rightMaxScrollOffset = Math.max(0, rightCalcY - rightCanvasH + rightPadY);
+                rightScrollOffset = Math.min(rightScrollOffset, rightMaxScrollOffset);
+
+                rightTexture.needsUpdate = true;
+            }
+            
+            // Handle typing logic for right canvas
+            window._updateRightCanvas = function(time) {
+                let needsRedraw = false;
+                
+                // Auto-start: when left canvas finishes, wait 1 second then begin right canvas typing
+                if (rightPhase === 'idle' && window._leftCanvasDone) {
+                    if (rightStartDelayTime < 0) {
+                        rightStartDelayTime = time; // Record when left canvas finished
+                    }
+                    // Wait 1 second before starting
+                    if (time >= rightStartDelayTime + 1000) {
+                        rightPhase = 'typing';
+                        window._rightPhase = rightPhase;
+                        rightCurrentLine = 0;
+                        rightCurrentChar = 0;
+                        rightDisplayedText = rightTypingLines.map(() => '');
+                        rightLastCharTime = -1;
+                        rightTypingDone = false;
+                        rightIsTyping = true;
+                        needsRedraw = true;
+                    }
+                }
+                
+                if (rightPhase === 'typing') {
+                    rightIsTyping = true;
+                    if (rightCurrentLine < rightTypingLines.length) {
+                        if (rightLastCharTime < 0) {
+                            rightLastCharTime = time;
+                        }
+                        if (time >= rightLastCharTime) {
+                            if (rightCurrentChar < rightTypingLines[rightCurrentLine].length) {
+                                rightDisplayedText[rightCurrentLine] += rightTypingLines[rightCurrentLine][rightCurrentChar];
+                                window.playTypewriterSound(); // Play typewriter sound
+                                rightCurrentChar++;
+                                rightLastCharTime = time + rightCharDelay;
+                                needsRedraw = true; // Redraw on every character
+                                
+                                // Auto-scroll if current line is below visible area
+                                let rightTempY = rightPadY;
+                                for (let i = 0; i <= rightCurrentLine; i++) {
+                                    if (rightDisplayedText[i].length > 0) {
+                                        const wrapped = rightWrapText(rightDisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                        rightTempY += wrapped.length * rightLineHeight;
+                                    }
+                                }
+                                const rightLineBottom = rightTempY - rightScrollOffset;
+                                const rightVisibleBottom = rightCanvasH - rightPadY;
+                                // More aggressive scrolling: scroll if current line bottom is getting close to visible bottom
+                                if (rightLineBottom > rightVisibleBottom - rightLineHeight * 2) {
+                                    // Scroll extra 3-4 lines ahead for better visibility
+                                    rightScrollOffset = Math.max(0, rightTempY - rightVisibleBottom + rightLineHeight * 3.5);
+                                    rightScrollOffset = Math.min(rightScrollOffset, rightMaxScrollOffset);
+                                }
+                            } else {
+                                // Line complete, move to next line
+                                rightCurrentLine++;
+                                rightCurrentChar = 0;
+                                rightLastCharTime = time + rightLineDelay;
+                                needsRedraw = true; // Redraw when line completes
+                                
+                                // Always auto-scroll after line completion to ensure next line is visible
+                                let rightTempY = rightPadY;
+                                for (let i = 0; i < rightCurrentLine; i++) {
+                                    if (rightDisplayedText[i].length > 0) {
+                                        const wrapped = rightWrapText(rightDisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                        rightTempY += wrapped.length * rightLineHeight;
+                                    }
+                                }
+                                // Calculate if next line would be visible
+                                const nextLineWrapped = rightCurrentLine < rightTypingLines.length ? 
+                                    rightWrapText(rightTypingLines[rightCurrentLine], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth) : [];
+                                const nextLineBottom = rightTempY + (nextLineWrapped.length * rightLineHeight) - rightScrollOffset;
+                                const rightVisibleBottom = rightCanvasH - rightPadY;
+                                if (nextLineBottom > rightVisibleBottom - rightLineHeight * 2) {
+                                    rightScrollOffset = Math.max(0, rightTempY - rightVisibleBottom + rightLineHeight * 3.5);
+                                    rightScrollOffset = Math.min(rightScrollOffset, rightMaxScrollOffset);
+                                }
+                            }
+                        }
+                    } else {
+                        // All lines typed, move to options1 phase
+                        rightTypingDone = true;
+                        rightPhase = 'options1';
+                        window._rightPhase = rightPhase; // Update exposed phase
+                        rightIsTyping = false;
+                        rightUserInput = '';
+                        needsRedraw = true;
+                        
+                        // Auto-scroll to show input field (one line)
+                        let rightTempY = rightPadY;
+                        for (let i = 0; i < rightDisplayedText.length; i++) {
+                            if (rightDisplayedText[i].length > 0) {
+                                const wrapped = rightWrapText(rightDisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                rightTempY += wrapped.length * rightLineHeight;
+                            }
+                        }
+                        const inputFieldBottom = rightTempY + rightLineHeight - rightScrollOffset;
+                        const rightVisibleBottom = rightCanvasH - rightPadY;
+                        if (inputFieldBottom > rightVisibleBottom) {
+                            rightScrollOffset = Math.max(0, rightTempY + rightLineHeight - rightVisibleBottom + rightLineHeight);
+                            const totalHeight = rightTempY + rightLineHeight;
+                            rightMaxScrollOffset = Math.max(0, totalHeight - rightCanvasH + rightPadY);
+                            rightScrollOffset = Math.min(rightScrollOffset, rightMaxScrollOffset);
+                        }
+                    }
+                }
+                
+                // Handle response1 typing
+                if (rightPhase === 'response1') {
+                    rightIsTyping = true;
+                    if (rightResponse1CurrentLine >= rightResponse1Lines.length) {
+                        // All response1 lines typed, move to options2 (input field, does nothing)
+                        rightResponse1TypingDone = true;
+                        rightPhase = 'options2';
+                        window._rightPhase = rightPhase;
+                        rightIsTyping = false;
+                        rightUserInput = '';
+                        needsRedraw = true;
+                        
+                        // Auto-scroll to show input field
+                        let rightTempY = rightPadY;
+                        for (let i = 0; i < rightDisplayedText.length; i++) {
+                            if (rightDisplayedText[i].length > 0) {
+                                const wrapped = rightWrapText(rightDisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                rightTempY += wrapped.length * rightLineHeight;
+                            }
+                        }
+                        for (let i = 0; i < rightResponse1DisplayedText.length; i++) {
+                            if (rightResponse1DisplayedText[i].length > 0) {
+                                const wrapped = rightWrapText(rightResponse1DisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                rightTempY += wrapped.length * rightLineHeight;
+                            }
+                        }
+                        const inputFieldBottom = rightTempY + rightLineHeight - rightScrollOffset;
+                        const rightVisibleBottom = rightCanvasH - rightPadY;
+                        if (inputFieldBottom > rightVisibleBottom) {
+                            rightScrollOffset = Math.max(0, rightTempY + rightLineHeight - rightVisibleBottom + rightLineHeight);
+                            const totalHeight = rightTempY + rightLineHeight;
+                            rightMaxScrollOffset = Math.max(0, totalHeight - rightCanvasH + rightPadY);
+                            rightScrollOffset = Math.min(rightScrollOffset, rightMaxScrollOffset);
+                        }
+                    } else if (rightResponse1CurrentLine < rightResponse1Lines.length) {
+                        if (rightResponse1LastCharTime < 0) {
+                            rightResponse1LastCharTime = time;
+                        }
+                        if (time >= rightResponse1LastCharTime) {
+                            if (rightResponse1CurrentChar < rightResponse1Lines[rightResponse1CurrentLine].length) {
+                                rightResponse1DisplayedText[rightResponse1CurrentLine] += rightResponse1Lines[rightResponse1CurrentLine][rightResponse1CurrentChar];
+                                window.playTypewriterSound();
+                                rightResponse1CurrentChar++;
+                                rightResponse1LastCharTime = time + rightCharDelay;
+                                needsRedraw = true;
+                                
+                                // Auto-scroll
+                                let rightTempY = rightPadY;
+                                for (let i = 0; i < rightDisplayedText.length; i++) {
+                                    if (rightDisplayedText[i].length > 0) {
+                                        const wrapped = rightWrapText(rightDisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                        rightTempY += wrapped.length * rightLineHeight;
+                                    }
+                                }
+                                // Account for the saved input line from options1
+                                if (rightOptions1Input) {
+                                    rightTempY += rightLineHeight;
+                                }
+                                for (let i = 0; i <= rightResponse1CurrentLine; i++) {
+                                    if (rightResponse1DisplayedText[i].length > 0) {
+                                        const wrapped = rightWrapText(rightResponse1DisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                        rightTempY += wrapped.length * rightLineHeight;
+                                    }
+                                }
+                                const rightLineBottom = rightTempY - rightScrollOffset;
+                                const rightVisibleBottom = rightCanvasH - rightPadY;
+                                if (rightLineBottom > rightVisibleBottom - rightLineHeight * 2) {
+                                    rightScrollOffset = Math.max(0, rightTempY - rightVisibleBottom + rightLineHeight);
+                                    rightScrollOffset = Math.min(rightScrollOffset, rightMaxScrollOffset);
+                                }
+                            } else {
+                                // Line complete, move to next
+                                rightResponse1CurrentLine++;
+                                rightResponse1CurrentChar = 0;
+                                rightResponse1LastCharTime = time + rightLineDelay;
+                                needsRedraw = true;
+                                
+                                // Auto-scroll after line completion
+                                let rightTempY = rightPadY;
+                                for (let i = 0; i < rightDisplayedText.length; i++) {
+                                    if (rightDisplayedText[i].length > 0) {
+                                        const wrapped = rightWrapText(rightDisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                        rightTempY += wrapped.length * rightLineHeight;
+                                    }
+                                }
+                                // Account for the saved input line from options1
+                                if (rightOptions1Input) {
+                                    rightTempY += rightLineHeight;
+                                }
+                                for (let i = 0; i < rightResponse1CurrentLine; i++) {
+                                    if (rightResponse1DisplayedText[i].length > 0) {
+                                        const wrapped = rightWrapText(rightResponse1DisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                        rightTempY += wrapped.length * rightLineHeight;
+                                    }
+                                }
+                                const nextLineWrapped = rightResponse1CurrentLine < rightResponse1Lines.length ? 
+                                    rightWrapText(rightResponse1Lines[rightResponse1CurrentLine], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth) : [];
+                                const nextLineBottom = rightTempY + (nextLineWrapped.length * rightLineHeight) - rightScrollOffset;
+                                const rightVisibleBottom = rightCanvasH - rightPadY;
+                                if (nextLineBottom > rightVisibleBottom - rightLineHeight * 2) {
+                                    rightScrollOffset = Math.max(0, rightTempY - rightVisibleBottom + rightLineHeight);
+                                    rightScrollOffset = Math.min(rightScrollOffset, rightMaxScrollOffset);
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Handle resume from pause (after left canvas finishes "Exactly." and waits 1 second)
+                if (rightPhase === 'paused' && window._hiringResponseExactlyDoneTime >= 0) {
+                    // Wait 1 second after "Exactly." is finished
+                    if (time >= window._hiringResponseExactlyDoneTime + 1000) {
+                        rightPhase = 'final';
+                        window._rightPhase = rightPhase;
+                        rightIsTyping = true;
+                        rightFinalCurrentLine = 14; // Continue from line 14
+                        rightFinalCurrentChar = 0;
+                        rightFinalLastCharTime = time + rightLineDelay;
+                        window._hiringResponseExactlyDoneTime = -1; // Clear flag
+                        needsRedraw = true;
+                    }
+                }
+                
+                // Handle final typing
+                if (rightPhase === 'final') {
+                    rightIsTyping = true;
+                    if (rightFinalCurrentLine < rightFinalLines.length) {
+                        if (rightFinalLastCharTime < 0) {
+                            rightFinalLastCharTime = time;
+                        }
+                        if (time >= rightFinalLastCharTime) {
+                            if (rightFinalCurrentChar < rightFinalLines[rightFinalCurrentLine].length) {
+                                rightFinalDisplayedText[rightFinalCurrentLine] += rightFinalLines[rightFinalCurrentLine][rightFinalCurrentChar];
+                                window.playTypewriterSound();
+                                rightFinalCurrentChar++;
+                                rightFinalLastCharTime = time + rightCharDelay;
+                                needsRedraw = true;
+                                
+                                // Auto-scroll
+                                let rightTempY = rightPadY;
+                                for (let i = 0; i < rightDisplayedText.length; i++) {
+                                    if (rightDisplayedText[i].length > 0) {
+                                        const wrapped = rightWrapText(rightDisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                        rightTempY += wrapped.length * rightLineHeight;
+                                    }
+                                }
+                                for (let i = 0; i < rightResponse1DisplayedText.length; i++) {
+                                    if (rightResponse1DisplayedText[i].length > 0) {
+                                        const wrapped = rightWrapText(rightResponse1DisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                        rightTempY += wrapped.length * rightLineHeight;
+                                    }
+                                }
+                                for (let i = 0; i <= rightFinalCurrentLine; i++) {
+                                    if (rightFinalDisplayedText[i].length > 0) {
+                                        const wrapped = rightWrapText(rightFinalDisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                        rightTempY += wrapped.length * rightLineHeight;
+                                    }
+                                }
+                                const rightLineBottom = rightTempY - rightScrollOffset;
+                                const rightVisibleBottom = rightCanvasH - rightPadY;
+                                if (rightLineBottom > rightVisibleBottom - rightLineHeight * 2) {
+                                    rightScrollOffset = Math.max(0, rightTempY - rightVisibleBottom + rightLineHeight);
+                                    rightScrollOffset = Math.min(rightScrollOffset, rightMaxScrollOffset);
+                                }
+                            } else {
+                                // Check if we just finished line 13 ("in whatever future you end up in")
+                                if (rightFinalCurrentLine === 13) {
+                                    // Pause right canvas typing
+                                    rightPhase = 'paused';
+                                    window._rightPhase = rightPhase;
+                                    rightIsTyping = false;
+                                    rightPausedAtLine13Time = time; // Record pause time
+                                    window._rightPausedAtLine13Time = time; // Expose globally for left canvas
+                                    window._rightFinalLine13Done = true; // Trigger left canvas new phase (after 1 second delay)
+                                    needsRedraw = true;
+                                    // Don't increment line - stay at line 13, exit typing
+                                    // Don't auto-scroll when pausing - just stay at current position
+                                } else {
+                                    rightFinalCurrentLine++;
+                                    rightFinalCurrentChar = 0;
+                                    rightFinalLastCharTime = time + rightLineDelay;
+                                    needsRedraw = true;
+                                    
+                                    // Auto-scroll after line completion (only if not pausing)
+                                    let rightTempY = rightPadY;
+                                    for (let i = 0; i < rightDisplayedText.length; i++) {
+                                        if (rightDisplayedText[i].length > 0) {
+                                            const wrapped = rightWrapText(rightDisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                            rightTempY += wrapped.length * rightLineHeight;
+                                        }
+                                    }
+                                    for (let i = 0; i < rightResponse1DisplayedText.length; i++) {
+                                        if (rightResponse1DisplayedText[i].length > 0) {
+                                            const wrapped = rightWrapText(rightResponse1DisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                            rightTempY += wrapped.length * rightLineHeight;
+                                        }
+                                    }
+                                    for (let i = 0; i < rightFinalCurrentLine; i++) {
+                                        if (rightFinalDisplayedText[i].length > 0) {
+                                            const wrapped = rightWrapText(rightFinalDisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                            rightTempY += wrapped.length * rightLineHeight;
+                                        }
+                                    }
+                                    const nextLineWrapped = rightFinalCurrentLine < rightFinalLines.length ? 
+                                        rightWrapText(rightFinalLines[rightFinalCurrentLine], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth) : [];
+                                    const nextLineBottom = rightTempY + (nextLineWrapped.length * rightLineHeight) - rightScrollOffset;
+                                    const rightVisibleBottom = rightCanvasH - rightPadY;
+                                    if (nextLineBottom > rightVisibleBottom - rightLineHeight * 2) {
+                                        rightScrollOffset = Math.max(0, rightTempY - rightVisibleBottom + rightLineHeight);
+                                        rightScrollOffset = Math.min(rightScrollOffset, rightMaxScrollOffset);
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        rightFinalTypingDone = true;
+                        rightPhase = 'done';
+                        window._rightPhase = rightPhase;
+                        rightIsTyping = false;
+                        needsRedraw = true;
+                        
+                        // Signal that right canvas is finished
+                        if (!window._rightCanvasFinished) {
+                            window._rightCanvasFinished = true;
+                            window._rightCanvasFinishedTime = time;
+                        }
+                        
+                        // Auto-scroll to ensure last line is fully visible
+                        let rightTempY = rightPadY;
+                        for (let i = 0; i < rightDisplayedText.length; i++) {
+                            if (rightDisplayedText[i].length > 0) {
+                                const wrapped = rightWrapText(rightDisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                rightTempY += wrapped.length * rightLineHeight;
+                            }
+                        }
+                        for (let i = 0; i < rightResponse1DisplayedText.length; i++) {
+                            if (rightResponse1DisplayedText[i].length > 0) {
+                                const wrapped = rightWrapText(rightResponse1DisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                rightTempY += wrapped.length * rightLineHeight;
+                            }
+                        }
+                        // Account for the saved input line from options1
+                        if (rightOptions1Input) {
+                            rightTempY += rightLineHeight;
+                        }
+                        for (let i = 0; i < rightFinalDisplayedText.length; i++) {
+                            if (rightFinalDisplayedText[i].length > 0) {
+                                const wrapped = rightWrapText(rightFinalDisplayedText[i], `${rightFontSize}px "Space Mono", Consolas, monospace`, rightTextMaxWidth);
+                                rightTempY += wrapped.length * rightLineHeight;
+                            } else if (rightFinalLines[i] === '') {
+                                // Empty line spacing
+                                rightTempY += rightLineHeight;
+                            }
+                        }
+                        const lastLineBottom = rightTempY - rightScrollOffset;
+                        const rightVisibleBottom = rightCanvasH - rightPadY;
+                        // Ensure last line is fully visible
+                        if (lastLineBottom > rightVisibleBottom) {
+                            rightScrollOffset = Math.max(0, rightTempY - rightVisibleBottom);
+                            rightScrollOffset = Math.min(rightScrollOffset, rightMaxScrollOffset);
+                        }
+                    }
+                }
+                
+                // Redraw for cursor blink or typing updates
+                const rightBlinkState = Math.floor(time / 500) % 2;
+                if (needsRedraw || rightBlinkState !== rightLastBlinkState || rightPhase === 'typing' || rightPhase === 'options1' || rightPhase === 'options2' || rightPhase === 'response1' || rightPhase === 'final' || rightPhase === 'paused' || (rightPhase === 'done' && rightClipboardNotification)) {
+                    rightLastBlinkState = rightBlinkState;
+                    redrawRightCanvas(time);
+                }
+            };
+            
+            // Handle input for right canvas
+            window._handleRightInput = function(key) {
+                if (rightPhase === 'options1') {
+                    if (key === 'Backspace') {
+                        rightUserInput = rightUserInput.slice(0, -1);
+                        redrawRightCanvas(performance.now());
+                    } else if (key === 'Enter') {
+                        const input = rightUserInput.trim().toLowerCase();
+                        if (input === '1') {
+                            // Correct answer: start response1 typing
+                            rightOptions1Input = '>' + rightUserInput; // Save the input line (e.g., ">1")
+                            rightPhase = 'response1';
+                            window._rightPhase = rightPhase;
+                            rightResponse1CurrentLine = 0;
+                            rightResponse1CurrentChar = 0;
+                            rightResponse1DisplayedText = rightResponse1Lines.map(() => '');
+                            rightResponse1LastCharTime = -1;
+                            rightResponse1TypingDone = false;
+                            rightIsTyping = true;
+                            redrawRightCanvas(performance.now());
+                        } else if (input === '2' || input === '3') {
+                            // Wrong answer: do nothing (stay in options1)
+                            // Could add error feedback here if needed
+                        }
+                    } else if (key.length === 1 && /[1-3]/.test(key)) {
+                        rightUserInput = key;
+                        redrawRightCanvas(performance.now());
+                    }
+                } else if (rightPhase === 'options2') {
+                    // Second question: allow typing but nothing happens on Enter
+                    if (key === 'Backspace') {
+                        rightUserInput = rightUserInput.slice(0, -1);
+                        redrawRightCanvas(performance.now());
+                    } else if (key === 'Enter') {
+                        // Do nothing - input is ignored
+                    } else if (key.length === 1) {
+                        rightUserInput += key;
+                        redrawRightCanvas(performance.now());
+                    }
+                }
+            };
+            
+            // Handle mouse wheel scrolling for right canvas
+            let isHoveringRightCanvas = false;
+            renderer.domElement.addEventListener('wheel', (event) => {
+                if (isHoveringRightCanvas && rightMaxScrollOffset > 0 && !rightIsTyping) {
+                    event.preventDefault();
+                    const scrollSpeed = 50;
+                    rightScrollOffset += event.deltaY > 0 ? scrollSpeed : -scrollSpeed;
+                    rightScrollOffset = Math.max(0, Math.min(rightScrollOffset, rightMaxScrollOffset));
+                    redrawRightCanvas(performance.now());
+                }
+            }, { passive: false });
+            
+            // Track mouse hover over right canvas and clickable lines
+            renderer.domElement.addEventListener('mousemove', (event) => {
+                const mouse = new THREE.Vector2();
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                
+                const rightRaycaster = new THREE.Raycaster();
+                rightRaycaster.setFromCamera(mouse, camera);
+                const rightIntersects = rightRaycaster.intersectObject(rightPlane);
+                isHoveringRightCanvas = rightIntersects.length > 0;
+                
+                let anyHoverChanged = false;
+                
+                if (rightIntersects.length > 0) {
+                    const intersect = rightIntersects[0];
+                    const uv = intersect.uv;
+                    const canvasX = uv.x * rightCanvasW;
+                    const canvasY = (1 - uv.y) * rightCanvasH;
+                    
+                    // Check "Only ONE..." clickable line (options2 phase)
+                    if (rightPhase === 'options2') {
+                        const startY = rightClickableLineY - rightScrollOffset;
+                        const hit = canvasX >= rightClickableLineX && canvasX <= rightClickableLineX + rightClickableLineWidth &&
+                                    canvasY >= startY && canvasY <= startY + rightLineHeight;
+                        if (hit !== rightClickableLineHovered) {
+                            rightClickableLineHovered = hit;
+                            anyHoverChanged = true;
+                        }
+                    } else if (rightClickableLineHovered) {
+                        rightClickableLineHovered = false;
+                        anyHoverChanged = true;
+                    }
+                    
+                    // Check link line and email line (final or done phase)
+                    if (rightPhase === 'final' || rightPhase === 'done') {
+                        // Link line
+                        const linkStartY = rightLinkLineY - rightScrollOffset;
+                        const linkHit = canvasX >= rightLinkLineX && canvasX <= rightLinkLineX + rightLinkLineWidth &&
+                                        canvasY >= linkStartY && canvasY <= linkStartY + rightLineHeight;
+                        if (linkHit !== rightLinkLineHovered) {
+                            rightLinkLineHovered = linkHit;
+                            anyHoverChanged = true;
+                        }
+                        
+                        // Email line
+                        const emailStartY = rightEmailLineY - rightScrollOffset;
+                        const emailHit = canvasX >= rightEmailLineX && canvasX <= rightEmailLineX + rightEmailLineWidth &&
+                                         canvasY >= emailStartY && canvasY <= emailStartY + rightLineHeight;
+                        if (emailHit !== rightEmailLineHovered) {
+                            rightEmailLineHovered = emailHit;
+                            anyHoverChanged = true;
+                        }
+                    } else {
+                        if (rightLinkLineHovered) { rightLinkLineHovered = false; anyHoverChanged = true; }
+                        if (rightEmailLineHovered) { rightEmailLineHovered = false; anyHoverChanged = true; }
+                    }
+                } else {
+                    if (rightClickableLineHovered) { rightClickableLineHovered = false; anyHoverChanged = true; }
+                    if (rightLinkLineHovered) { rightLinkLineHovered = false; anyHoverChanged = true; }
+                    if (rightEmailLineHovered) { rightEmailLineHovered = false; anyHoverChanged = true; }
+                }
+                
+                if (anyHoverChanged) {
+                    redrawRightCanvas(performance.now());
+                }
+            });
+            
+            // Handle click on clickable lines
+            renderer.domElement.addEventListener('click', (event) => {
+                const mouse = new THREE.Vector2();
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                
+                const rightRaycaster = new THREE.Raycaster();
+                rightRaycaster.setFromCamera(mouse, camera);
+                const rightIntersects = rightRaycaster.intersectObject(rightPlane);
+                
+                if (rightIntersects.length > 0) {
+                    const intersect = rightIntersects[0];
+                    const uv = intersect.uv;
+                    const canvasX = uv.x * rightCanvasW;
+                    const canvasY = (1 - uv.y) * rightCanvasH;
+                    
+                    // "Only ONE..." clickable (options2 phase)
+                    if (rightPhase === 'options2') {
+                        const startY = rightClickableLineY - rightScrollOffset;
+                        if (canvasX >= rightClickableLineX && canvasX <= rightClickableLineX + rightClickableLineWidth &&
+                            canvasY >= startY && canvasY <= startY + rightLineHeight) {
+                            rightClickableLineClicked = true;
+                            rightPhase = 'final';
+                            window._rightPhase = rightPhase;
+                            rightFinalCurrentLine = 0;
+                            rightFinalCurrentChar = 0;
+                            rightFinalDisplayedText = rightFinalLines.map(() => '');
+                            rightFinalLastCharTime = -1;
+                            rightFinalTypingDone = false;
+                            rightIsTyping = true;
+                            redrawRightCanvas(performance.now());
+                        }
+                    }
+                    
+                    // Link and email clickable (final or done phase)
+                    if (rightPhase === 'final' || rightPhase === 'done') {
+                        // Link line click
+                        const linkStartY = rightLinkLineY - rightScrollOffset;
+                        if (canvasX >= rightLinkLineX && canvasX <= rightLinkLineX + rightLinkLineWidth &&
+                            canvasY >= linkStartY && canvasY <= linkStartY + rightLineHeight) {
+                            window.open('https://fyyh.itch.io/', '_blank');
+                        }
+                        
+                        // Email line click
+                        const emailStartY = rightEmailLineY - rightScrollOffset;
+                        if (canvasX >= rightEmailLineX && canvasX <= rightEmailLineX + rightEmailLineWidth &&
+                            canvasY >= emailStartY && canvasY <= emailStartY + rightLineHeight) {
+                            navigator.clipboard.writeText('yuhengye@usc.edu').then(() => {
+                                rightClipboardNotification = 'Email copied!';
+                                rightClipboardNotificationTime = performance.now();
+                                redrawRightCanvas(performance.now());
+                            });
+                        }
+                    }
+                }
+            });
+            
+            // Initial clear
+            redrawRightCanvas(performance.now());
+        })();
+
+        // Collidable objects (walls)
+        const collidableObjects = [northWall, southWall, eastWall, westWall];
+
+        // First-person controls
+        let pitch = 0; // Start looking forward
+        let yaw = 0;
+        const ROTATION_SENSITIVITY = 0.001;
+        
+        // Movement state
+        const moveState = {
+            forward: false,
+            backward: false,
+            left: false,
+            right: false,
+            jump: false,
+            run: false
+        };
+        
+        const velocity = new THREE.Vector3();
+        const direction = new THREE.Vector3();
+        const moveSpeed = 5.0;
+        const runMultiplier = 2.0;
+        const jumpVelocity = 8.0;
+        const gravity = -20.0;
+        let canJump = true;
+        let isOnGround = true;
+
+        // Pointer lock
+        let isPointerLocked = false;
+        
+        const onPointerLockChange = () => {
+            isPointerLocked = document.pointerLockElement === renderer.domElement;
+        };
+        
+        document.addEventListener('pointerlockchange', onPointerLockChange);
+        document.addEventListener('mspointerlockchange', onPointerLockChange);
+        
+        // Game state: 'dialogue' = interactive dialogue, 'playing' = free movement
+        let gameState = 'dialogue';
+        
+        // Fade out animation for canvases
+        let canvasFadeOutStartTime = -1;
+        const canvasFadeOutDuration = 1000; // 1 second fade out
+
+        renderer.domElement.addEventListener('click', (event) => {
+            if (gameState === 'playing') {
+                renderer.domElement.requestPointerLock();
+            } else if (gameState === 'dialogue' && window._dialogueClick) {
+                window._dialogueClick(event);
+            }
+        });
+
+        // Mouse movement
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        let isFirstMove = true;
+        
+        const onMouseMove = (event) => {
+            if (!isPointerLocked) return;
+            
+            if (isFirstMove) {
+                lastMouseX = event.movementX || 0;
+                lastMouseY = event.movementY || 0;
+                isFirstMove = false;
+                return;
+            }
+            
+            const deltaX = event.movementX || 0;
+            const deltaY = event.movementY || 0;
+            
+            // Clamp deltas to prevent large jumps
+            const maxDelta = 50;
+            const clampedDeltaX = Math.max(-maxDelta, Math.min(maxDelta, deltaX));
+            const clampedDeltaY = Math.max(-maxDelta, Math.min(maxDelta, deltaY));
+            
+            yaw -= clampedDeltaX * ROTATION_SENSITIVITY;
+            pitch -= clampedDeltaY * ROTATION_SENSITIVITY;
+            
+            // Clamp pitch to prevent flipping
+            pitch = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, pitch));
+        };
+        
+        document.addEventListener('mousemove', onMouseMove);
+
+        // Keyboard controls
+        const keys = {};
+        
+        const onKeyDown = (event) => {
+            if (gameState !== 'playing') return;
+            keys[event.code] = true;
+            
+            switch(event.code) {
+                case 'KeyW': moveState.forward = true; break;
+                case 'KeyS': moveState.backward = true; break;
+                case 'KeyA': moveState.left = true; break;
+                case 'KeyD': moveState.right = true; break;
+                case 'Space': 
+                    if (canJump && isOnGround) {
+                        velocity.y = jumpVelocity;
+                        canJump = false;
+                        isOnGround = false;
+                    }
+                    break;
+                case 'ShiftLeft': moveState.run = true; break;
+            }
+        };
+        
+        const onKeyUp = (event) => {
+            keys[event.code] = false;
+            
+            switch(event.code) {
+                case 'KeyW': moveState.forward = false; break;
+                case 'KeyS': moveState.backward = false; break;
+                case 'KeyA': moveState.left = false; break;
+                case 'KeyD': moveState.right = false; break;
+                case 'ShiftLeft': moveState.run = false; break;
+            }
+        };
+        
+        document.addEventListener('keydown', onKeyDown);
+        document.addEventListener('keyup', onKeyUp);
+
+        // Collision detection
+        const raycaster = new THREE.Raycaster();
+        const playerHeight = 4;
+        const playerRadius = 0.3;
+        const boundary = floorSize / 2 - 0.5; // Keep player away from walls
+        
+        const checkCollision = (position) => {
+            // Clamp x and z simultaneously to prevent escaping at corners
+            position.x = Math.max(-boundary, Math.min(boundary, position.x));
+            position.z = Math.max(-boundary, Math.min(boundary, position.z));
+            
+            // Check ground collision - floor is at y = 0
+            const groundY = 0;
+            const feetY = position.y - playerHeight;
+            
+            if (feetY <= groundY + 0.1) {
+                position.y = groundY + playerHeight;
+                if (velocity.y < 0) {
+                    velocity.y = 0;
+                }
+                isOnGround = true;
+                canJump = true;
+            } else {
+                isOnGround = false;
+            }
+        };
+
+
+        // Animation loop
+        let lastTime = performance.now();
+        let frameCount = 0;
+        let lastFpsUpdate = performance.now();
+
+        const animate = () => {
+            requestAnimationFrame(animate);
+
+            const time = performance.now();
+            const delta = (time - lastTime) / 1000;
+            lastTime = time;
+
+            // Update FPS counter
+            frameCount++;
+            if (time - lastFpsUpdate > 1000) {
+                document.getElementById('fps').textContent = frameCount;
+                frameCount = 0;
+                lastFpsUpdate = time;
+            }
+
+            // Apply rotation
+            const euler = new THREE.Euler(pitch, yaw, 0, 'YXZ');
+            camera.quaternion.setFromEuler(euler);
+
+            // Calculate movement direction
+            direction.set(0, 0, 0);
+            
+            if (moveState.forward) direction.z -= 1;
+            if (moveState.backward) direction.z += 1;
+            if (moveState.left) direction.x -= 1;
+            if (moveState.right) direction.x += 1;
+            
+            direction.normalize();
+            
+            // Apply camera rotation to movement direction
+            const forward = new THREE.Vector3(0, 0, -1);
+            const right = new THREE.Vector3(1, 0, 0);
+            forward.applyQuaternion(camera.quaternion);
+            right.applyQuaternion(camera.quaternion);
+            forward.y = 0;
+            right.y = 0;
+            forward.normalize();
+            right.normalize();
+            
+            const moveDirection = new THREE.Vector3();
+            // Fix: direction.z is negative for forward, so we need to negate it
+            moveDirection.addScaledVector(forward, -direction.z);
+            moveDirection.addScaledVector(right, direction.x);
+            moveDirection.normalize();
+            
+            // Calculate speed
+            let speed = moveSpeed;
+            if (moveState.run) {
+                speed *= runMultiplier;
+            }
+            
+            // Apply horizontal movement
+            velocity.x = moveDirection.x * speed;
+            velocity.z = moveDirection.z * speed;
+            
+            // Apply gravity only if not on ground
+            if (!isOnGround) {
+                velocity.y += gravity * delta;
+            } else {
+                // Reset vertical velocity when on ground
+                velocity.y = 0;
+            }
+            
+            // Update position
+            const newPosition = camera.position.clone();
+            newPosition.addScaledVector(velocity, delta);
+            
+            // Check collisions (clamps position to boundaries)
+            checkCollision(newPosition);
+            camera.position.copy(newPosition);
+            
+            // Update position display
+            const pos = camera.position;
+            document.getElementById('position').textContent = 
+                `${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)}`;
+            // Update rotation display (pitch, yaw in degrees)
+            const pitchDeg = (pitch * 180 / Math.PI).toFixed(1);
+            const yawDeg = (yaw * 180 / Math.PI).toFixed(1);
+            document.getElementById('rotation').textContent = `pitch: ${pitchDeg}°, yaw: ${yawDeg}°`;
+
+
+            // Update typewriter animation
+            if (window._typewriterUpdate) window._typewriterUpdate(time);
+            
+            // Update right canvas
+            if (window._updateRightCanvas) {
+                window._updateRightCanvas(time);
+            }
+            
+            // Check if closing dialogue is done, wait 3 seconds then enter movement mode
+            if (window._closingDoneTime >= 0 && canvasFadeOutStartTime < 0) {
+                if (time >= window._closingDoneTime + 3000) {
+                    gameState = 'playing';
+                    canvasFadeOutStartTime = time;
+                    window._closingDoneTime = -1; // Clear flag
+                    renderer.domElement.requestPointerLock();
+                }
+            }
+            
+            // Handle canvas fade out animation
+            if (canvasFadeOutStartTime >= 0) {
+                const elapsed = time - canvasFadeOutStartTime;
+                const progress = Math.min(elapsed / canvasFadeOutDuration, 1);
+                const opacity = Math.max(0, 1 - progress); // Fade from 1 to 0, ensure >= 0
+                
+                if (window._leftCanvasMaterial) {
+                    window._leftCanvasMaterial.opacity = opacity;
+                    window._leftCanvasMaterial.needsUpdate = true; // Ensure material updates
+                }
+                if (window._rightCanvasMaterial) {
+                    window._rightCanvasMaterial.opacity = opacity;
+                    window._rightCanvasMaterial.needsUpdate = true; // Ensure material updates
+                }
+                
+                // Remove canvases from scene when fade out is complete
+                if (progress >= 1) {
+                    if (window._leftCanvasPlane && window._leftCanvasPlane.parent) {
+                        scene.remove(window._leftCanvasPlane);
+                    }
+                    if (window._rightCanvasPlane && window._rightCanvasPlane.parent) {
+                        scene.remove(window._rightCanvasPlane);
+                    }
+                    canvasFadeOutStartTime = -1; // Stop animation
+                }
+            }
+
+            renderer.render(scene, camera);
+        };
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start animation
+        animate();
+        } // End of initScene function
+    </script>
+</body>
+</html>
