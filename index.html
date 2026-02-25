@@ -287,6 +287,254 @@
         westWall.rotation.y = Math.PI / 2;
         scene.add(westWall);
 
+        // ---- Dithering and Image Loading Functions ----
+        function applyFloydSteinbergDithering(imageData) {
+            const data = imageData.data;
+            const width = imageData.width;
+            const height = imageData.height;
+            
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const idx = (y * width + x) * 4;
+                    const gray = data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114;
+                    const newColor = gray > 127 ? 255 : 0;
+                    const error = gray - newColor;
+                    
+                    data[idx] = newColor;
+                    data[idx + 1] = newColor;
+                    data[idx + 2] = newColor;
+                    
+                    if (x < width - 1) {
+                        data[idx + 4] += error * 7 / 16;
+                    }
+                    if (y < height - 1) {
+                        if (x > 0) {
+                            data[idx + width * 4 - 4] += error * 3 / 16;
+                        }
+                        data[idx + width * 4] += error * 5 / 16;
+                        if (x < width - 1) {
+                            data[idx + width * 4 + 4] += error * 1 / 16;
+                        }
+                    }
+                }
+            }
+            
+            return imageData;
+        }
+
+        function loadAnimatedDitheredImageToWall(imagePath, wall, options = {}) {
+            const {
+                x = 0, y = 0.5,
+                width = floorSize,
+                height = wallHeight,
+                enableBlink = false,
+                enableBreath = true,
+                enableScanlines = false,
+                enableNoise = false,
+                eyeRegion = {
+                    left: { x: 0.3, y: 0.4, width: 0.15, height: 0.1 },
+                    right: { x: 0.55, y: 0.4, width: 0.15, height: 0.1 }
+                }
+            } = options;
+            
+            const img = new Image();
+            // Only set crossOrigin for external URLs, not local files
+            if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+                img.crossOrigin = 'anonymous';
+            }
+            
+            console.log('Attempting to load image:', imagePath);
+            
+            img.onload = function() {
+                console.log('Image loaded successfully:', imagePath);
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                
+                ctx.drawImage(img, 0, 0);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const ditheredData = applyFloydSteinbergDithering(imageData);
+                ctx.putImageData(ditheredData, 0, 0);
+                
+                const originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                
+                const texture = new THREE.CanvasTexture(canvas);
+                texture.minFilter = THREE.NearestFilter;
+                texture.magFilter = THREE.NearestFilter;
+                texture.generateMipmaps = false;
+                
+                const material = new THREE.MeshBasicMaterial({
+                    map: texture,
+                    side: THREE.DoubleSide
+                });
+                
+                const plane = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+                
+                const offset = 0.05;
+                switch (wall) {
+                    case 'east':
+                        plane.position.set(half - offset, wallHeight * y, x * half);
+                        plane.rotation.y = -Math.PI / 2;
+                        break;
+                    case 'west':
+                        plane.position.set(-half + offset, wallHeight * y, x * half);
+                        plane.rotation.y = Math.PI / 2;
+                        break;
+                    case 'north':
+                        plane.position.set(x * half, wallHeight * y, -half + offset);
+                        break;
+                    case 'south':
+                        plane.position.set(x * half, wallHeight * y, half - offset);
+                        plane.rotation.y = Math.PI;
+                        break;
+                }
+                
+                scene.add(plane);
+                console.log('Image plane added to scene at wall:', wall, 'position:', plane.position);
+                
+                let blinkState = 0;
+                let blinkTimer = 0;
+                let lastBlinkTime = 0;
+                const baseScale = 1.0;
+                
+                function updateAnimation(time) {
+                    let needsUpdate = false;
+                    ctx.putImageData(originalImageData, 0, 0);
+                    
+                    if (enableBlink) {
+                        const now = time * 0.001;
+                        const timeSinceLastBlink = now - lastBlinkTime;
+                        
+                        if (blinkState === 0 && timeSinceLastBlink > 2 + Math.random() * 3) {
+                            blinkState = 1;
+                            blinkTimer = 0;
+                        }
+                        
+                        blinkTimer += 0.016;
+                        
+                        if (blinkState === 1) {
+                            const progress = Math.min(blinkTimer / 0.15, 1);
+                            const eyeHeight = eyeRegion.left.height * (1 - progress);
+                            drawEyeBlink(ctx, canvas.width, canvas.height, eyeRegion.left, eyeHeight);
+                            drawEyeBlink(ctx, canvas.width, canvas.height, eyeRegion.right, eyeHeight);
+                            
+                            if (progress >= 1) {
+                                blinkState = 2;
+                                blinkTimer = 0;
+                            }
+                            needsUpdate = true;
+                        } else if (blinkState === 2) {
+                            drawEyeBlink(ctx, canvas.width, canvas.height, eyeRegion.left, 0);
+                            drawEyeBlink(ctx, canvas.width, canvas.height, eyeRegion.right, 0);
+                            
+                            if (blinkTimer > 0.1) {
+                                blinkState = 3;
+                                blinkTimer = 0;
+                            }
+                            needsUpdate = true;
+                        } else if (blinkState === 3) {
+                            const progress = Math.min(blinkTimer / 0.15, 1);
+                            const eyeHeight = eyeRegion.left.height * progress;
+                            drawEyeBlink(ctx, canvas.width, canvas.height, eyeRegion.left, eyeHeight);
+                            drawEyeBlink(ctx, canvas.width, canvas.height, eyeRegion.right, eyeHeight);
+                            
+                            if (progress >= 1) {
+                                blinkState = 0;
+                                lastBlinkTime = now;
+                            }
+                            needsUpdate = true;
+                        }
+                    }
+                    
+                    if (enableScanlines) {
+                        const scanlineData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        const scanlineY = Math.floor((time * 0.001 * 30) % canvas.height);
+                        for (let x = 0; x < canvas.width; x++) {
+                            const idx = (scanlineY * canvas.width + x) * 4;
+                            scanlineData.data[idx] = 0;
+                            scanlineData.data[idx + 1] = 0;
+                            scanlineData.data[idx + 2] = 0;
+                        }
+                        ctx.putImageData(scanlineData, 0, 0);
+                        needsUpdate = true;
+                    }
+                    
+                    if (enableNoise && Math.random() < 0.02) {
+                        const noiseData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                        for (let i = 0; i < noiseData.data.length; i += 4) {
+                            if (Math.random() < 0.001) {
+                                const val = Math.random() > 0.5 ? 255 : 0;
+                                noiseData.data[i] = val;
+                                noiseData.data[i + 1] = val;
+                                noiseData.data[i + 2] = val;
+                            }
+                        }
+                        ctx.putImageData(noiseData, 0, 0);
+                        needsUpdate = true;
+                    }
+                    
+                    if (enableBreath) {
+                        const breathAmount = Math.sin(time * 0.001 * 2) * 0.02;
+                        plane.scale.set(
+                            baseScale + breathAmount,
+                            baseScale + breathAmount,
+                            1
+                        );
+                    }
+                    
+                    if (needsUpdate) {
+                        texture.needsUpdate = true;
+                    }
+                }
+                
+                function drawEyeBlink(ctx, imgWidth, imgHeight, eyeRegion, eyeHeight) {
+                    const x = Math.floor(eyeRegion.x * imgWidth);
+                    const y = Math.floor(eyeRegion.y * imgHeight);
+                    const w = Math.floor(eyeRegion.width * imgWidth);
+                    const h = Math.floor(eyeHeight * imgHeight);
+                    
+                    if (h > 0) {
+                        ctx.fillStyle = 'black';
+                        ctx.fillRect(x, y, w, h);
+                    }
+                }
+                
+                window._animatedWalls = window._animatedWalls || [];
+                window._animatedWalls.push({
+                    update: updateAnimation,
+                    plane: plane
+                });
+            };
+            
+            img.onerror = function(error) {
+                console.error('Failed to load image:', imagePath);
+                console.error('Error details:', error);
+                console.error('Make sure the image file exists at:', imagePath);
+                console.error('Expected location: images/face.png in the project root');
+                console.error('NOTE: You must use a local server (not file://) to load images.');
+                console.error('Run: python -m http.server 8000 (in project directory)');
+                console.error('Then open: http://localhost:8000');
+                console.error('Current working directory should be:', window.location.pathname);
+            };
+            
+            img.src = imagePath;
+            console.log('Image src set to:', img.src);
+        }
+
+        // ---- Load dithered images to walls ----
+        // Load image to left wall (west) - adjust path and eye region as needed
+        loadAnimatedDitheredImageToWall('images/face.png', 'west', {
+            enableBlink: false,  // Blink disabled as requested
+            enableBreath: true,
+            enableScanlines: false,
+            enableNoise: false,
+            eyeRegion: {
+                left: { x: 0.3, y: 0.4, width: 0.15, height: 0.1 },
+                right: { x: 0.55, y: 0.4, width: 0.15, height: 0.1 }
+            }
+        });
+
         // ---- Draw all room edges as 3D cylinders (thick lines) ----
         const edgeMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
         const edgeRadius = 0.04; // Thickness of the edge lines
@@ -416,8 +664,8 @@
         // ---- Dialogue system on north wall ----
         (function() {
             const typingLines = ['Hi.', 'Have you been here before?'];
-            const charDelay = 2; // 10x speed for testing
-            const lineDelay = 15; // 10x speed for testing
+            const charDelay = 60; // Half speed (slower)
+            const lineDelay = 600; // Half speed (slower)
             const startDelay = 1000;
 
             // Phases: 'typing' -> 'options' -> 'no_typing' -> 'final_typing' -> 'final_options' -> 'final_continue' -> 'final_done' -> 'hiring_typing' -> 'hiring_options' -> 'hiring_response' | 'done'
@@ -547,7 +795,7 @@
             
             // Hiring manager dialogue (after right canvas finishes "in whatever future you end up in")
             const hiringLines = [
-                "Oh please, save your heartfelt closing.",
+                "Hold on, that's getting too sentimental.",
                 "Imagine reading this as a hiring manager.",
                 "Would you hire him?",
             ];
@@ -1564,8 +1812,11 @@
                         if (currentChar < typingLines[currentLine].length) {
                             displayedText[currentLine] += typingLines[currentLine][currentChar];
                             window.playTypewriterSound(); // Play typewriter sound
+                            const currentCharValue = typingLines[currentLine][currentChar];
                             currentChar++;
-                            lastCharTime = time + charDelay;
+                            // Add extra delay for commas (same as line delay)
+                            const extraDelay = (currentCharValue === ',') ? lineDelay : 0;
+                            lastCharTime = time + charDelay + extraDelay;
                             
                             // Auto-scroll if current line is below visible area (calculate without redraw to avoid flicker)
                             let tempY = padY;
@@ -1606,8 +1857,11 @@
                         if (noCurrentChar < noResponseLines[noCurrentLine].length) {
                             noDisplayedText[noCurrentLine] += noResponseLines[noCurrentLine][noCurrentChar];
                             window.playTypewriterSound(); // Play typewriter sound
+                            const currentCharValue = noResponseLines[noCurrentLine][noCurrentChar];
                             noCurrentChar++;
-                            noLastCharTime = time + charDelay;
+                            // Add extra delay for commas (same as line delay)
+                            const extraDelay = (currentCharValue === ',') ? lineDelay : 0;
+                            noLastCharTime = time + charDelay + extraDelay;
                             
                             // Auto-scroll if current line is below visible area (calculate without redraw to avoid flicker)
                             // Calculate absolute position from padY (not affected by scrollOffset)
@@ -1659,8 +1913,11 @@
                         if (finalCurrentChar < finalLines[finalCurrentLine].length) {
                             finalDisplayedText[finalCurrentLine] += finalLines[finalCurrentLine][finalCurrentChar];
                             window.playTypewriterSound();
+                            const currentCharValue = finalLines[finalCurrentLine][finalCurrentChar];
                             finalCurrentChar++;
-                            finalLastCharTime = time + charDelay;
+                            // Add extra delay for commas (same as line delay)
+                            const extraDelay = (currentCharValue === ',') ? lineDelay : 0;
+                            finalLastCharTime = time + charDelay + extraDelay;
                             
                             // Auto-scroll
                             let tempY = padY;
@@ -1710,8 +1967,11 @@
                         if (finalContinueCurrentChar < finalContinueLines[finalContinueCurrentLine].length) {
                             finalContinueDisplayedText[finalContinueCurrentLine] += finalContinueLines[finalContinueCurrentLine][finalContinueCurrentChar];
                             window.playTypewriterSound();
+                            const currentCharValue = finalContinueLines[finalContinueCurrentLine][finalContinueCurrentChar];
                             finalContinueCurrentChar++;
-                            finalContinueLastCharTime = time + charDelay;
+                            // Add extra delay for commas (same as line delay)
+                            const extraDelay = (currentCharValue === ',') ? lineDelay : 0;
+                            finalContinueLastCharTime = time + charDelay + extraDelay;
                             
                             // Auto-scroll
                             let tempY = padY;
@@ -1819,8 +2079,11 @@
                         if (hiringCurrentChar < hiringLines[hiringCurrentLine].length) {
                             hiringDisplayedText[hiringCurrentLine] += hiringLines[hiringCurrentLine][hiringCurrentChar];
                             window.playTypewriterSound();
+                            const currentCharValue = hiringLines[hiringCurrentLine][hiringCurrentChar];
                             hiringCurrentChar++;
-                            hiringLastCharTime = time + charDelay;
+                            // Add extra delay for commas (same as line delay)
+                            const extraDelay = (currentCharValue === ',') ? lineDelay : 0;
+                            hiringLastCharTime = time + charDelay + extraDelay;
                             
                             // Auto-scroll
                             let tempY = padY;
@@ -1884,8 +2147,11 @@
                         if (hiringResponseCurrentChar < hiringResponseLines[hiringResponseCurrentLine].length) {
                             hiringResponseDisplayedText[hiringResponseCurrentLine] += hiringResponseLines[hiringResponseCurrentLine][hiringResponseCurrentChar];
                             window.playTypewriterSound();
+                            const currentCharValue = hiringResponseLines[hiringResponseCurrentLine][hiringResponseCurrentChar];
                             hiringResponseCurrentChar++;
-                            hiringResponseLastCharTime = time + charDelay;
+                            // Add extra delay for commas (same as line delay)
+                            const extraDelay = (currentCharValue === ',') ? lineDelay : 0;
+                            hiringResponseLastCharTime = time + charDelay + extraDelay;
                             
                             // Auto-scroll
                             let tempY = padY;
@@ -1972,8 +2238,11 @@
                         if (closingCurrentChar < closingLines[closingCurrentLine].length) {
                             closingDisplayedText[closingCurrentLine] += closingLines[closingCurrentLine][closingCurrentChar];
                             window.playTypewriterSound();
+                            const currentCharValue = closingLines[closingCurrentLine][closingCurrentChar];
                             closingCurrentChar++;
-                            closingLastCharTime = time + charDelay;
+                            // Add extra delay for commas (same as line delay)
+                            const extraDelay = (currentCharValue === ',') ? lineDelay : 0;
+                            closingLastCharTime = time + charDelay + extraDelay;
                             
                             // Auto-scroll
                             let tempY = padY;
@@ -2166,18 +2435,20 @@
                 "I never said I was experimenting.",
                 "That was a joke, one time.",
                 "He refuses to let it go.",
-                "And I'm not pretending that I don't care.",
-                "I really just don't.",
                 "Other than that, he's mostly right.",
-                "It did take me a long time to accept that most people won't care about the stuff I make.",
+                "If you ask me why I started making games, the answer is pretty simple, and kind of dumb.",
+                "I didn't really know what else I was good at.",
+                "So I thought, why not try making the kind of things I enjoy playing?",
+                "Turns out, I'm not good at this either.",
+                "And it took me a long time to accept that most people won't care about the stuff I make, and that I might never become the kind of developer I thought I'd be.",
                 "I'm fine with it now. I think.",
-                "Okay, that's enough self analysis.",
-                "I'm not really good at this, and it isn't therapy anyway.",
+                "But... never mind.",
+                "That's enough self-analysis, and this isn't therapy.",
                 "Anyway, I've been timing this.",
-                "It takes you about 110 seconds to get here.",
-                "Almost two minutes of text, and awful typing sound effects.",
+                "It takes you about 150 seconds to get here.",
+                "Two and a half minutes of text, and those awful typing sound effects.",
                 "Impressive.",
-                "I mean your tolerance for bullshit.",
+                "I mean your tolerance for me rambling.",
                 "You've already made it here, so I guess you don't mind some multiple choice questions.",
                 "Only ONE of the following statements is FALSE.",
                 "Which one is it?",
@@ -2196,15 +2467,17 @@
                 "Here's another one.",
                 "Only ONE of the statements is FALSE.",
                 "Which one is it?",
-                "1. Even my feelings have feelings, and I want to emphasize this in my every work.",
-                "2. To me, attitude is the most important thing in every interactive media.",
-                "3. I would love to make a little prank and frustrate my players a little bit, but not too much."
+                "1. Even my feelings have feelings, and I try not to ignore that when I make things.",
+                "2. To me, attitude matters more than anything in all forms of media.",
+                "3. I like pulling small pranks on my players, frustrating them just enough, but not too much."
             ];
             const rightClickableLineIndex = 5; // Index of the clickable line in rightResponse1Lines
             
             // Final text after clicking the clickable line
             const rightFinalLines = [
-                "So now you get what I mean.",
+                "So probably you get what I mean now.",
+                "This is the kind of thing I like making.",
+                "Something small, but slightly off.",
                 "Congrats, you made it to the end.",
                 "I guess that's all you really need to know about me.",
                 "My games probably say more than I ever could, so if you have time, try them.",
@@ -2215,8 +2488,8 @@
                 "Also, most people would call this an artist statement.",
                 "I feel weird calling myself an artist, and I definitely don't feel qualified enough to make a statement.",
                 "So I'm just trying to make this as honest as possible, and hopefully not too boring.",
-                "One last thing: I genuinely appreciate anyone who makes it this far or tries my games.",
-                "Seriously. Thank you.",
+                "One last thing: thank you for reading this far, or trying my games.",
+                "Seriously, thank you.",
                 "I hope things work out for you, in whatever future you end up in.",
                 "Oh shit, wait…",
                 "If you're a recruiter, PLEASE ignore everything we just said.",
@@ -2229,11 +2502,13 @@
                 "",
                 "See you later :)"
             ];
-            const rightFinalLinkLineIndex = 4; // "The link is right here."
-            const rightFinalEmailLineIndex = 21; // "Here's my email: yuhengye@usc.edu"
+            // Dynamically find line indices to avoid hardcoding
+            const rightFinalPauseLineIndex = rightFinalLines.findIndex(line => line.includes("in whatever future you end up in"));
+            const rightFinalLinkLineIndex = rightFinalLines.findIndex(line => line.includes("The link is right here"));
+            const rightFinalEmailLineIndex = rightFinalLines.findIndex(line => line.includes("Here's my email:"));
             
-            const rightCharDelay = 2; // 10x speed for testing
-            const rightLineDelay = 5; // 10x speed for testing
+            const rightCharDelay = 60; // Half speed (slower)
+            const rightLineDelay = 600; // Half speed (slower)
             const rightFontSize = 64;
             const rightLineHeight = 90;
             const rightPadX = 40;
@@ -2612,8 +2887,11 @@
                             if (rightCurrentChar < rightTypingLines[rightCurrentLine].length) {
                                 rightDisplayedText[rightCurrentLine] += rightTypingLines[rightCurrentLine][rightCurrentChar];
                                 window.playTypewriterSound(); // Play typewriter sound
+                                const currentCharValue = rightTypingLines[rightCurrentLine][rightCurrentChar];
                                 rightCurrentChar++;
-                                rightLastCharTime = time + rightCharDelay;
+                                // Add extra delay for commas (same as line delay)
+                                const extraDelay = (currentCharValue === ',') ? rightLineDelay : 0;
+                                rightLastCharTime = time + rightCharDelay + extraDelay;
                                 needsRedraw = true; // Redraw on every character
                                 
                                 // Auto-scroll if current line is below visible area
@@ -2728,8 +3006,11 @@
                             if (rightResponse1CurrentChar < rightResponse1Lines[rightResponse1CurrentLine].length) {
                                 rightResponse1DisplayedText[rightResponse1CurrentLine] += rightResponse1Lines[rightResponse1CurrentLine][rightResponse1CurrentChar];
                                 window.playTypewriterSound();
+                                const currentCharValue = rightResponse1Lines[rightResponse1CurrentLine][rightResponse1CurrentChar];
                                 rightResponse1CurrentChar++;
-                                rightResponse1LastCharTime = time + rightCharDelay;
+                                // Add extra delay for commas (same as line delay)
+                                const extraDelay = (currentCharValue === ',') ? rightLineDelay : 0;
+                                rightResponse1LastCharTime = time + rightCharDelay + extraDelay;
                                 needsRedraw = true;
                                 
                                 // Auto-scroll
@@ -2801,7 +3082,7 @@
                         rightPhase = 'final';
                         window._rightPhase = rightPhase;
                         rightIsTyping = true;
-                        rightFinalCurrentLine = 14; // Continue from line 14
+                        rightFinalCurrentLine = rightFinalPauseLineIndex + 1; // Continue from line after pause
                         rightFinalCurrentChar = 0;
                         rightFinalLastCharTime = time + rightLineDelay;
                         window._hiringResponseExactlyDoneTime = -1; // Clear flag
@@ -2820,8 +3101,11 @@
                             if (rightFinalCurrentChar < rightFinalLines[rightFinalCurrentLine].length) {
                                 rightFinalDisplayedText[rightFinalCurrentLine] += rightFinalLines[rightFinalCurrentLine][rightFinalCurrentChar];
                                 window.playTypewriterSound();
+                                const currentCharValue = rightFinalLines[rightFinalCurrentLine][rightFinalCurrentChar];
                                 rightFinalCurrentChar++;
-                                rightFinalLastCharTime = time + rightCharDelay;
+                                // Add extra delay for commas (same as line delay)
+                                const extraDelay = (currentCharValue === ',') ? rightLineDelay : 0;
+                                rightFinalLastCharTime = time + rightCharDelay + extraDelay;
                                 needsRedraw = true;
                                 
                                 // Auto-scroll
@@ -2851,8 +3135,8 @@
                                     rightScrollOffset = Math.min(rightScrollOffset, rightMaxScrollOffset);
                                 }
                             } else {
-                                // Check if we just finished line 13 ("in whatever future you end up in")
-                                if (rightFinalCurrentLine === 13) {
+                                // Check if we just finished the pause line ("in whatever future you end up in")
+                                if (rightFinalCurrentLine === rightFinalPauseLineIndex) {
                                     // Pause right canvas typing
                                     rightPhase = 'paused';
                                     window._rightPhase = rightPhase;
@@ -3228,6 +3512,17 @@
         const keys = {};
         
         const onKeyDown = (event) => {
+            // Debug mode: Press E to enter movement mode from any state
+            if (event.code === 'KeyE') {
+                if (gameState === 'dialogue') {
+                    gameState = 'playing';
+                    canvasFadeOutStartTime = performance.now(); // Start fade out animation
+                    renderer.domElement.requestPointerLock();
+                    event.preventDefault();
+                    return;
+                }
+            }
+            
             if (gameState !== 'playing') return;
             keys[event.code] = true;
             
@@ -3382,6 +3677,13 @@
             // Update right canvas
             if (window._updateRightCanvas) {
                 window._updateRightCanvas(time);
+            }
+            
+            // Update animated walls (dithering effects)
+            if (window._animatedWalls) {
+                window._animatedWalls.forEach(wall => {
+                    wall.update(time);
+                });
             }
             
             // Check if closing dialogue is done, wait 3 seconds then enter movement mode
