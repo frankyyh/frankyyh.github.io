@@ -287,103 +287,34 @@
         westWall.rotation.y = Math.PI / 2;
         scene.add(westWall);
 
-        // ---- Dithering and Image Loading Functions ----
-        function applyFloydSteinbergDithering(imageData) {
-            const data = imageData.data;
-            const width = imageData.width;
-            const height = imageData.height;
-            
-            for (let y = 0; y < height; y++) {
-                for (let x = 0; x < width; x++) {
-                    const idx = (y * width + x) * 4;
-                    const gray = data[idx] * 0.299 + data[idx + 1] * 0.587 + data[idx + 2] * 0.114;
-                    const newColor = gray > 127 ? 0 : 255; // Inverted: dark becomes white, light becomes black
-                    const error = gray - newColor;
-                    
-                    data[idx] = newColor;
-                    data[idx + 1] = newColor;
-                    data[idx + 2] = newColor;
-                    
-                    if (x < width - 1) {
-                        data[idx + 4] += error * 7 / 16;
-                    }
-                    if (y < height - 1) {
-                        if (x > 0) {
-                            data[idx + width * 4 - 4] += error * 3 / 16;
-                        }
-                        data[idx + width * 4] += error * 5 / 16;
-                        if (x < width - 1) {
-                            data[idx + width * 4 + 4] += error * 1 / 16;
-                        }
-                    }
-                }
-            }
-            
-            return imageData;
-        }
-
-        function loadAnimatedDitheredImageToWall(imagePath, wall, options = {}) {
+        // ---- Simple Image Loading Functions ----
+        let facePlane = null;
+        let eyePlane = null;
+        let eyeBasePosition = null;
+        
+        function loadImageToWall(imagePath, wall, options = {}) {
             const {
                 x = 0, y = 0.5,
                 width = floorSize,
-                height = wallHeight,
-                enableBlink = false,
-                enableBreath = false,
-                enableScanlines = false,
-                enableNoise = false,
-                enableDitherShake = false,  // Random movement of dithering dots
-                ditherScale = 0.5,  // Scale factor for larger dithering dots (0.5 = 2x larger dots)
-                eyeRegion = {
-                    left: { x: 0.3, y: 0.4, width: 0.15, height: 0.1 },
-                    right: { x: 0.55, y: 0.4, width: 0.15, height: 0.1 }
-                }
+                height = wallHeight
             } = options;
             
             const img = new Image();
-            // Only set crossOrigin for external URLs, not local files
             if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
                 img.crossOrigin = 'anonymous';
             }
             
-            console.log('Attempting to load image:', imagePath);
-            
             img.onload = function() {
                 console.log('Image loaded successfully:', imagePath);
                 
-                // Create a smaller canvas for dithering (to make dots larger)
-                const smallCanvas = document.createElement('canvas');
-                smallCanvas.width = Math.floor(img.width * ditherScale);
-                smallCanvas.height = Math.floor(img.height * ditherScale);
-                const smallCtx = smallCanvas.getContext('2d');
-                
-                // Draw image scaled down
-                smallCtx.drawImage(img, 0, 0, smallCanvas.width, smallCanvas.height);
-                
-                // Apply dithering on smaller image (creates larger dots)
-                const imageData = smallCtx.getImageData(0, 0, smallCanvas.width, smallCanvas.height);
-                const ditheredData = applyFloydSteinbergDithering(imageData);
-                smallCtx.putImageData(ditheredData, 0, 0);
-                
-                // Create final canvas at original size and scale up the dithered image
-                const canvas = document.createElement('canvas');
-                canvas.width = img.width;
-                canvas.height = img.height;
-                const ctx = canvas.getContext('2d');
-                ctx.imageSmoothingEnabled = false; // Use nearest neighbor for pixelated look
-                
-                // Scale up the dithered image (this makes the dots larger and more visible)
-                ctx.drawImage(smallCanvas, 0, 0, canvas.width, canvas.height);
-                
-                const originalImageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                
-                const texture = new THREE.CanvasTexture(canvas);
-                texture.minFilter = THREE.NearestFilter;
-                texture.magFilter = THREE.NearestFilter;
-                texture.generateMipmaps = false;
+                const texture = new THREE.TextureLoader().load(imagePath);
+                texture.minFilter = THREE.LinearFilter;
+                texture.magFilter = THREE.LinearFilter;
                 
                 const material = new THREE.MeshBasicMaterial({
                     map: texture,
-                    side: THREE.DoubleSide
+                    side: THREE.DoubleSide,
+                    transparent: true
                 });
                 
                 const plane = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
@@ -408,297 +339,129 @@
                 }
                 
                 scene.add(plane);
-                console.log('Image plane added to scene at wall:', wall, 'position:', plane.position);
-                
-                let blinkState = 0;
-                let blinkTimer = 0;
-                let lastBlinkTime = 0;
-                const baseScale = 1.0;
-                
-                // Dither shake animation state
-                let ditherShakeState = 'rest'; // 'rest' | 'shaking' | 'returning'
-                let ditherShakeTimer = 0;
-                let ditherShakeStartTime = performance.now();
-                const ditherShakeDuration = 2000; // 2 seconds of shaking
-                const ditherShakeRestDuration = 3000; // 3 seconds of rest
-                const ditherShakeReturnDuration = 500; // 0.5 seconds to return
-                let shuffledPixels = []; // Array to store pixel positions that are being shuffled
-                let originalPixelPositions = []; // Store original positions
-                
-                function updateAnimation(time) {
-                    let needsUpdate = false;
-                    ctx.putImageData(originalImageData, 0, 0);
-                    
-                    // Dither shake animation
-                    if (enableDitherShake) {
-                        const now = time * 0.001; // Convert to seconds
-                        const elapsed = (time - ditherShakeStartTime) * 0.001;
-                        
-                        if (ditherShakeState === 'rest') {
-                            // Wait for rest duration, then start shaking
-                            if (elapsed >= ditherShakeRestDuration / 1000) {
-                                ditherShakeState = 'shaking';
-                                ditherShakeStartTime = time;
-                                ditherShakeTimer = 0;
-                                
-                                // Prepare shuffled pixels (select random pixels to move)
-                                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                                const data = imageData.data;
-                                shuffledPixels = [];
-                                originalPixelPositions = [];
-                                
-                                // Select random pixels (about 5-10% of all pixels)
-                                const pixelCount = canvas.width * canvas.height;
-                                const shuffleCount = Math.floor(pixelCount * 0.07);
-                                
-                                for (let i = 0; i < shuffleCount; i++) {
-                                    const x = Math.floor(Math.random() * canvas.width);
-                                    const y = Math.floor(Math.random() * canvas.height);
-                                    const idx = (y * canvas.width + x) * 4;
-                                    
-                                    // Only shuffle black or white pixels (not transparent)
-                                    if (data[idx + 3] > 0) {
-                                        shuffledPixels.push({
-                                            x: x,
-                                            y: y,
-                                            idx: idx,
-                                            r: data[idx],
-                                            g: data[idx + 1],
-                                            b: data[idx + 2],
-                                            a: data[idx + 3]
-                                        });
-                                        originalPixelPositions.push({ x: x, y: y });
-                                    }
-                                }
-                            }
-                        } else if (ditherShakeState === 'shaking') {
-                            // Randomly move pixels around
-                            ditherShakeTimer += 0.016; // ~60fps
-                            
-                            if (ditherShakeTimer * 1000 >= ditherShakeDuration) {
-                                // Time to return
-                                ditherShakeState = 'returning';
-                                ditherShakeStartTime = time;
-                                ditherShakeTimer = 0;
-                            } else {
-                                // Shake pixels
-                                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                                const data = imageData.data;
-                                
-                                // Clear original positions
-                                shuffledPixels.forEach(pixel => {
-                                    const idx = pixel.idx;
-                                    data[idx] = 0;
-                                    data[idx + 1] = 0;
-                                    data[idx + 2] = 0;
-                                    data[idx + 3] = 0;
-                                });
-                                
-                                // Place pixels at random nearby positions
-                                shuffledPixels.forEach((pixel, i) => {
-                                    const maxOffset = 3; // Maximum pixels to move
-                                    const offsetX = Math.floor((Math.random() - 0.5) * maxOffset * 2);
-                                    const offsetY = Math.floor((Math.random() - 0.5) * maxOffset * 2);
-                                    const newX = Math.max(0, Math.min(canvas.width - 1, pixel.x + offsetX));
-                                    const newY = Math.max(0, Math.min(canvas.height - 1, pixel.y + offsetY));
-                                    const newIdx = (newY * canvas.width + newX) * 4;
-                                    
-                                    // Update pixel position for return animation
-                                    pixel.x = newX;
-                                    pixel.y = newY;
-                                    
-                                    data[newIdx] = pixel.r;
-                                    data[newIdx + 1] = pixel.g;
-                                    data[newIdx + 2] = pixel.b;
-                                    data[newIdx + 3] = pixel.a;
-                                });
-                                
-                                ctx.putImageData(imageData, 0, 0);
-                                needsUpdate = true;
-                            }
-                        } else if (ditherShakeState === 'returning') {
-                            // Return pixels to original positions
-                            ditherShakeTimer += 0.016;
-                            const progress = Math.min(ditherShakeTimer * 1000 / ditherShakeReturnDuration, 1);
-                            
-                            if (progress >= 1) {
-                                // Return complete, go back to rest
-                                ditherShakeState = 'rest';
-                                ditherShakeStartTime = time;
-                                ditherShakeTimer = 0;
-                                shuffledPixels = [];
-                                originalPixelPositions = [];
-                            } else {
-                                // Interpolate positions back
-                                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                                const data = imageData.data;
-                                
-                                // Clear all shuffled pixels
-                                shuffledPixels.forEach(pixel => {
-                                    const idx = pixel.idx;
-                                    data[idx] = 0;
-                                    data[idx + 1] = 0;
-                                    data[idx + 2] = 0;
-                                    data[idx + 3] = 0;
-                                });
-                                
-                                // Place pixels interpolating back to original positions
-                                shuffledPixels.forEach((pixel, i) => {
-                                    const orig = originalPixelPositions[i];
-                                    const currentX = pixel.x;
-                                    const currentY = pixel.y;
-                                    const targetX = orig.x;
-                                    const targetY = orig.y;
-                                    
-                                    const x = Math.floor(currentX + (targetX - currentX) * progress);
-                                    const y = Math.floor(currentY + (targetY - currentY) * progress);
-                                    const idx = (y * canvas.width + x) * 4;
-                                    
-                                    data[idx] = pixel.r;
-                                    data[idx + 1] = pixel.g;
-                                    data[idx + 2] = pixel.b;
-                                    data[idx + 3] = pixel.a;
-                                });
-                                
-                                ctx.putImageData(imageData, 0, 0);
-                                needsUpdate = true;
-                            }
-                        }
-                    }
-                    
-                    if (enableBlink) {
-                        const now = time * 0.001;
-                        const timeSinceLastBlink = now - lastBlinkTime;
-                        
-                        if (blinkState === 0 && timeSinceLastBlink > 2 + Math.random() * 3) {
-                            blinkState = 1;
-                            blinkTimer = 0;
-                        }
-                        
-                        blinkTimer += 0.016;
-                        
-                        if (blinkState === 1) {
-                            const progress = Math.min(blinkTimer / 0.15, 1);
-                            const eyeHeight = eyeRegion.left.height * (1 - progress);
-                            drawEyeBlink(ctx, canvas.width, canvas.height, eyeRegion.left, eyeHeight);
-                            drawEyeBlink(ctx, canvas.width, canvas.height, eyeRegion.right, eyeHeight);
-                            
-                            if (progress >= 1) {
-                                blinkState = 2;
-                                blinkTimer = 0;
-                            }
-                            needsUpdate = true;
-                        } else if (blinkState === 2) {
-                            drawEyeBlink(ctx, canvas.width, canvas.height, eyeRegion.left, 0);
-                            drawEyeBlink(ctx, canvas.width, canvas.height, eyeRegion.right, 0);
-                            
-                            if (blinkTimer > 0.1) {
-                                blinkState = 3;
-                                blinkTimer = 0;
-                            }
-                            needsUpdate = true;
-                        } else if (blinkState === 3) {
-                            const progress = Math.min(blinkTimer / 0.15, 1);
-                            const eyeHeight = eyeRegion.left.height * progress;
-                            drawEyeBlink(ctx, canvas.width, canvas.height, eyeRegion.left, eyeHeight);
-                            drawEyeBlink(ctx, canvas.width, canvas.height, eyeRegion.right, eyeHeight);
-                            
-                            if (progress >= 1) {
-                                blinkState = 0;
-                                lastBlinkTime = now;
-                            }
-                            needsUpdate = true;
-                        }
-                    }
-                    
-                    if (enableScanlines) {
-                        const scanlineData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                        const scanlineY = Math.floor((time * 0.001 * 30) % canvas.height);
-                        for (let x = 0; x < canvas.width; x++) {
-                            const idx = (scanlineY * canvas.width + x) * 4;
-                            scanlineData.data[idx] = 0;
-                            scanlineData.data[idx + 1] = 0;
-                            scanlineData.data[idx + 2] = 0;
-                        }
-                        ctx.putImageData(scanlineData, 0, 0);
-                        needsUpdate = true;
-                    }
-                    
-                    if (enableNoise && Math.random() < 0.02) {
-                        const noiseData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                        for (let i = 0; i < noiseData.data.length; i += 4) {
-                            if (Math.random() < 0.001) {
-                                const val = Math.random() > 0.5 ? 255 : 0;
-                                noiseData.data[i] = val;
-                                noiseData.data[i + 1] = val;
-                                noiseData.data[i + 2] = val;
-                            }
-                        }
-                        ctx.putImageData(noiseData, 0, 0);
-                        needsUpdate = true;
-                    }
-                    
-                    if (enableBreath) {
-                        const breathAmount = Math.sin(time * 0.001 * 2) * 0.02;
-                        plane.scale.set(
-                            baseScale + breathAmount,
-                            baseScale + breathAmount,
-                            1
-                        );
-                    }
-                    
-                    if (needsUpdate) {
-                        texture.needsUpdate = true;
-                    }
-                }
-                
-                function drawEyeBlink(ctx, imgWidth, imgHeight, eyeRegion, eyeHeight) {
-                    const x = Math.floor(eyeRegion.x * imgWidth);
-                    const y = Math.floor(eyeRegion.y * imgHeight);
-                    const w = Math.floor(eyeRegion.width * imgWidth);
-                    const h = Math.floor(eyeHeight * imgHeight);
-                    
-                    if (h > 0) {
-                        ctx.fillStyle = 'black';
-                        ctx.fillRect(x, y, w, h);
-                    }
-                }
-                
-                window._animatedWalls = window._animatedWalls || [];
-                window._animatedWalls.push({
-                    update: updateAnimation,
-                    plane: plane
-                });
+                console.log('Image plane added to scene at wall:', wall);
+                return plane;
             };
             
-            img.onerror = function(error) {
+            img.onerror = function() {
                 console.error('Failed to load image:', imagePath);
-                console.error('Error details:', error);
-                console.error('Make sure the image file exists at:', imagePath);
-                console.error('Expected location: images/face.png in the project root');
-                console.error('NOTE: You must use a local server (not file://) to load images.');
-                console.error('Run: python -m http.server 8000 (in project directory)');
-                console.error('Then open: http://localhost:8000');
-                console.error('Current working directory should be:', window.location.pathname);
             };
             
             img.src = imagePath;
-            console.log('Image src set to:', img.src);
         }
-
-        // ---- Load dithered images to walls ----
-        // Load image to left wall (west) - adjust path and eye region as needed
-        loadAnimatedDitheredImageToWall('images/face.png', 'west', {
-            enableBlink: false,  // Blink disabled as requested
-            enableBreath: false,  // Breath disabled as requested
-            enableScanlines: false,
-            enableNoise: false,
-            enableDitherShake: true,  // Enable random dithering dot movement
-            eyeRegion: {
-                left: { x: 0.3, y: 0.4, width: 0.15, height: 0.1 },
-                right: { x: 0.55, y: 0.4, width: 0.15, height: 0.1 }
+        
+        function loadEyeImage(imagePath, basePlane, options = {}) {
+            const {
+                x = 0, y = 0,  // Offset relative to base plane
+                width = 1,
+                height = 1,
+                maxOffset = 0.3  // Maximum eye movement distance
+            } = options;
+            
+            const img = new Image();
+            if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+                img.crossOrigin = 'anonymous';
             }
-        });
+            
+            img.onload = function() {
+                console.log('Eye image loaded successfully:', imagePath);
+                
+                const texture = new THREE.TextureLoader().load(imagePath);
+                texture.minFilter = THREE.LinearFilter;
+                texture.magFilter = THREE.LinearFilter;
+                
+                const material = new THREE.MeshBasicMaterial({
+                    map: texture,
+                    side: THREE.DoubleSide,
+                    transparent: true
+                });
+                
+                const plane = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+                
+                // Position relative to base plane (face)
+                plane.position.copy(basePlane.position);
+                plane.position.x += x;
+                plane.position.y += y;
+                plane.position.z += 0.01; // Slightly in front of face
+                plane.rotation.copy(basePlane.rotation);
+                
+                scene.add(plane);
+                console.log('Eye plane added to scene');
+                
+                // Store base position for eye tracking
+                eyeBasePosition = {
+                    x: plane.position.x,
+                    y: plane.position.y,
+                    z: plane.position.z
+                };
+                
+                return plane;
+            };
+            
+            img.onerror = function() {
+                console.error('Failed to load eye image:', imagePath);
+            };
+            
+            img.src = imagePath;
+        }
+        
+        // Load face image to left wall (west)
+        const faceImg = new Image();
+        faceImg.onload = function() {
+            const texture = new THREE.TextureLoader().load('images/face.png');
+            texture.minFilter = THREE.LinearFilter;
+            texture.magFilter = THREE.LinearFilter;
+            
+            const material = new THREE.MeshBasicMaterial({
+                map: texture,
+                side: THREE.DoubleSide,
+                transparent: true
+            });
+            
+            facePlane = new THREE.Mesh(new THREE.PlaneGeometry(floorSize, wallHeight), material);
+            const offset = 0.05;
+            facePlane.position.set(-half + offset, wallHeight * 0.5, 0);
+            facePlane.rotation.y = Math.PI / 2;
+            scene.add(facePlane);
+            
+            // Load eye image on top of face
+            const eyeImg = new Image();
+            eyeImg.onload = function() {
+                const eyeTexture = new THREE.TextureLoader().load('images/eye.png');
+                eyeTexture.minFilter = THREE.LinearFilter;
+                eyeTexture.magFilter = THREE.LinearFilter;
+                
+                const eyeMaterial = new THREE.MeshBasicMaterial({
+                    map: eyeTexture,
+                    side: THREE.DoubleSide,
+                    transparent: true
+                });
+                
+                // Eye size relative to face (adjust as needed)
+                const eyeWidth = floorSize * 0.3;
+                const eyeHeight = wallHeight * 0.15;
+                eyePlane = new THREE.Mesh(new THREE.PlaneGeometry(eyeWidth, eyeHeight), eyeMaterial);
+                
+                // Position eyes on face (adjust y offset to position eyes correctly)
+                eyePlane.position.copy(facePlane.position);
+                eyePlane.position.y += wallHeight * 0.15; // Adjust vertical position
+                eyePlane.position.z += 0.01; // Slightly in front
+                eyePlane.rotation.copy(facePlane.rotation);
+                
+                scene.add(eyePlane);
+                
+                // Store base position for eye tracking
+                eyeBasePosition = {
+                    x: eyePlane.position.x,
+                    y: eyePlane.position.y,
+                    z: eyePlane.position.z
+                };
+                
+                console.log('Face and eyes loaded successfully');
+            };
+            eyeImg.src = 'images/eye.png';
+        };
+        faceImg.src = 'images/face.png';
 
         // ---- Draw all room edges as 3D cylinders (thick lines) ----
         const edgeMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -3844,11 +3607,34 @@
                 window._updateRightCanvas(time);
             }
             
-            // Update animated walls (dithering effects)
-            if (window._animatedWalls) {
-                window._animatedWalls.forEach(wall => {
-                    wall.update(time);
-                });
+            // Update eye tracking (eyes follow player)
+            if (eyePlane && eyeBasePosition && camera && facePlane) {
+                // Get face world position
+                const faceWorldPos = new THREE.Vector3();
+                facePlane.getWorldPosition(faceWorldPos);
+                
+                // Get camera position
+                const camPos = camera.position.clone();
+                
+                // Calculate direction from face to camera in world space
+                const direction = new THREE.Vector3().subVectors(camPos, faceWorldPos);
+                
+                // Convert to local space of the wall (west wall is rotated 90 degrees)
+                // For west wall: world X -> local Z, world Z -> local -X
+                const localOffset = new THREE.Vector3();
+                localOffset.x = direction.z * 0.1; // Player's Z movement affects eye X (left/right on wall)
+                localOffset.y = direction.y * 0.1; // Player's Y movement affects eye Y (up/down)
+                localOffset.z = -direction.x * 0.1; // Player's X movement affects eye Z (but we'll ignore this)
+                
+                // Clamp offset to max distance
+                const maxOffset = 0.3;
+                localOffset.x = Math.max(-maxOffset, Math.min(maxOffset, localOffset.x));
+                localOffset.y = Math.max(-maxOffset, Math.min(maxOffset, localOffset.y));
+                
+                // Apply offset to eye position (only X and Y, keep Z same)
+                eyePlane.position.x = eyeBasePosition.x + localOffset.x;
+                eyePlane.position.y = eyeBasePosition.y + localOffset.y;
+                eyePlane.position.z = eyeBasePosition.z;
             }
             
             // Check if closing dialogue is done, wait 3 seconds then enter movement mode
