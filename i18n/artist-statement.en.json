@@ -1,0 +1,102 @@
+{
+  "shell": {
+    "title": "Choose Language",
+    "desc": "Pick a language, then press start to begin the artist statement.",
+    "start": "Start Artist Statement"
+  },
+  "left": {
+    "typingLines": ["Hi.", "Have you been here before?"],
+    "noResponseLines": [
+      "Well… let me introduce the creator first.",
+      "You can call him 叶宇恒, or Frank, or whatever makes this feel more important than it actually is.",
+      "He made, is making, and might continue making games.",
+      "Not these fancy ones.",
+      "More like something he uploads to itch, and then watches dissolve quietly like a drop of water in the ocean.",
+      "If he's lucky enough, there's about a 1/100000 chance that someone might see, open, and play one of them.",
+      "And an even smaller chance that they'll remember it.",
+      "He claims that he's \"experimenting\".",
+      "Let's be honest, he's just trying to entertain himself, and he fails most of the time.",
+      "He doesn't really know what he wants, and pretends that he doesn't care.",
+      "He's painfully ordinary, just a random person making unimportant things and hoping that they matter."
+    ],
+    "finalLines": ["That's it.", "Are you sure you want to proceed?"],
+    "finalContinueLines": [
+      "All right, if you're patient enough to see this, it means you're either boring as FUCK, or strangely interested in this loser.",
+      "I'll connect you to him."
+    ],
+    "hiringLines": [
+      "Hold on, that's getting too sentimental.",
+      "And too long.",
+      "Imagine reading this as a hiring manager.",
+      "Would you hire him?"
+    ],
+    "hiringResponseLines": ["Exactly."],
+    "closingLines": ["Well, he's finally done.", "The space is yours now, have fun."]
+  },
+  "right": {
+    "typingLines": [
+      "Come on.",
+      "Don't listen to all the crap he said on the left.",
+      "I never said I was experimenting.",
+      "That was a joke, one time.",
+      "He refuses to let it go.",
+      "Other than that, he's mostly right.",
+      "If you ask me why I started making games, the answer is pretty simple, and kind of dumb.",
+      "I didn't really know what else I was good at.",
+      "So I thought, why not try making the kind of things I enjoy playing?",
+      "Turns out, I'm not good at this either.",
+      "And it took me a long time to accept that most people won't care about the stuff I make, and that I might never become the kind of developer I thought I'd be.",
+      "I'm fine with it now, I think.",
+      "But... never mind.",
+      "That's enough self-analysis, and this isn't therapy.",
+      "Anyway, I've been timing this.",
+      "It takes you about 150 seconds to get here.",
+      "Two and a half minutes of text, and those awful typing sound effects.",
+      "Impressive.",
+      "I mean your tolerance for me rambling.",
+      "You've already made it here, so I guess you don't mind some multiple choice questions.",
+      "Only ONE of the following statements is FALSE.",
+      "Which one is it?",
+      "1. I'm very good at visuals.",
+      "2. 1+1 = 2.",
+      "3. There are 24 hours in a day."
+    ],
+    "response1Lines": [
+      "Bingo.",
+      "You're smarter than I think.",
+      "Well, haha...",
+      "I'm just kidding, that one was obvious.",
+      "Here's another one.",
+      "Only ONE of the statements is FALSE.",
+      "Which one is it?",
+      "1. I try my best to convey a feeling through all of my games, since it's what makes me feel like I exist.",
+      "2. My attitude largely shapes what I choose to create and what I want to express.",
+      "3. Rather than aiming for conventional fun, I want to find something more unconventional, something that feels fresh."
+    ],
+    "finalLines": [
+      "So probably you get what I mean now.",
+      "This is the kind of thing I like making.",
+      "Something small, but slightly off.",
+      "Congrats, you made it to the end.",
+      "I guess that's all you really need to know about me.",
+      "My games probably say more than I ever could, so if you have time, try them.",
+      "I've hidden most of my stuff because I don't think that it's ready yet.",
+      "That doesn't mean I'm proud of the ones that are up there…",
+      "It just means I'm okay with showing them, and I do appreciate any feedback.",
+      "Also, most people would call this an artist statement.",
+      "I feel weird calling myself an artist, and I definitely don't feel qualified enough to make a statement.",
+      "So I'm just trying to make this as honest as possible, and hopefully not too boring.",
+      "Thank you for reading this far.",
+      "Seriously, thank you.",
+      "Oh shit, wait…",
+      "If you're a recruiter, PLEASE ignore everything we just said.",
+      "None of it is true.",
+      "I'm extremely responsible, highly motivated, and very normal.",
+      "An adaptable, proactive team player who thrives in collaborative environments.",
+      "I will absolutely do whatever it takes to get a job.",
+      "For real.",
+      "",
+      "See you later :)"
+    ]
+  }
+}
