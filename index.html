@@ -903,7 +903,6 @@
         }
 
         async function showEntryScreen() {
-            loadingScreen.classList.add('hidden');
             try {
                 await ensureAsciiTextLoaded();
                 asciiVisible = true;
@@ -912,6 +911,8 @@
                 startAsciiAnimation();
             } catch (error) {
                 console.error('Failed to start ASCII home background:', error);
+            } finally {
+                loadingScreen.classList.add('hidden');
             }
             entryScreen.classList.add('visible');
         }
