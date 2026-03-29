@@ -2275,15 +2275,22 @@
         }
 
         let gamesTitleFitRaf = 0;
+
+        /** Run title fit in the same turn as showing the panel so the first paint is already correct (avoids one frame at wrong font sizes after display:none → flex). */
+        function syncFitGamesOverviewIfVisible() {
+            if (!gamesPanel || !gamesListRoot || !shouldFitGameOverviewTitles()) return;
+            void gamesPanel.offsetWidth;
+            fitGamesOverviewTitles(gamesListRoot);
+            equalizeGameRowHeights(gamesListRoot);
+        }
+
         function scheduleFitGamesOverviewTitles() {
             if (!gamesListRoot) return;
             cancelAnimationFrame(gamesTitleFitRaf);
             gamesTitleFitRaf = requestAnimationFrame(() => {
-                gamesTitleFitRaf = requestAnimationFrame(() => {
-                    if (!shouldFitGameOverviewTitles()) return;
-                    fitGamesOverviewTitles(gamesListRoot);
-                    equalizeGameRowHeights(gamesListRoot);
-                });
+                if (!shouldFitGameOverviewTitles()) return;
+                fitGamesOverviewTitles(gamesListRoot);
+                equalizeGameRowHeights(gamesListRoot);
             });
         }
 
@@ -2584,6 +2591,7 @@
             aboutPanel.setAttribute('aria-hidden', 'true');
             closeContactPanel();
             gamesPanel.style.zIndex = '';
+            syncFitGamesOverviewIfVisible();
             scheduleFitGamesOverviewTitles();
         });
 
