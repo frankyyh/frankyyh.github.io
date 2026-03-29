@@ -29,6 +29,24 @@
       "title": "how to properly fall asleep",
       "image": "game-thumbnails/howtoproperlyfallasleep.png",
       "detailFile": "game-details/howtoproperlyfallasleep.json"
+    },
+    {
+      "id": "kappa",
+      "title": "Fieldguide to Yo-Kai and Friends",
+      "image": "game-thumbnails/kappa.png",
+      "detailFile": "game-details/kappa.json"
+    },
+    {
+      "id": "havesometea",
+      "title": "どうぞお召し上がりください",
+      "image": "game-thumbnails/havesometea.png",
+      "detailFile": "game-details/havesometea.json"
+    },
+    {
+      "id": "qqqpq",
+      "title": "qqqpq",
+      "image": "game-thumbnails/qqqpq.png",
+      "detailFile": "game-details/qqqpq.json"
     }
   ]
 }

@@ -437,6 +437,13 @@
             -moz-user-select: none;
         }
 
+        #contact-methods .contact-row-btn.contact-linkedin-expanded {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 24px;
+        }
+
         #copy-toast {
             position: fixed;
             left: 50%;
@@ -2387,6 +2394,8 @@
                     email: '',
                     discordUrl: '',
                     linkedinText: '',
+                    linkedinSecondLine: '',
+                    linkedinUrl: '',
                     wechatText: '',
                     steamUrl: '',
                 };
@@ -2397,6 +2406,8 @@
             if (!contactMethods) return;
             contactMethods.querySelectorAll('[data-contact]').forEach((btn) => {
                 const lab = btn.getAttribute('data-label');
+                delete btn.dataset.linkedinStage;
+                btn.classList.remove('contact-linkedin-expanded');
                 if (lab) btn.textContent = lab;
             });
         }
@@ -2455,7 +2466,41 @@
                     return;
                 }
                 if (kind === 'linkedin') {
-                    btn.textContent = (cfg.linkedinText || '').trim() || '—';
+                    const stage = btn.dataset.linkedinStage || '0';
+                    const line2Text = (cfg.linkedinSecondLine || '').trim();
+                    const url = (cfg.linkedinUrl || '').trim();
+
+                    if (stage === '2' && url) {
+                        openContactExternalUrl(cfg.linkedinUrl);
+                        return;
+                    }
+
+                    if (stage === '0') {
+                        const t1 = (cfg.linkedinText || '').trim() || '—';
+                        btn.dataset.linkedinStage = '1';
+                        btn.classList.add('contact-linkedin-expanded');
+                        btn.replaceChildren();
+                        const l1 = document.createElement('div');
+                        l1.className = 'linkedin-line1';
+                        l1.textContent = t1;
+                        btn.appendChild(l1);
+                        if (line2Text && url) {
+                            const l2 = document.createElement('div');
+                            l2.className = 'linkedin-line2';
+                            l2.hidden = true;
+                            l2.textContent = line2Text;
+                            btn.appendChild(l2);
+                        }
+                        return;
+                    }
+                    if (stage === '1') {
+                        const l2 = btn.querySelector('.linkedin-line2');
+                        if (l2 && l2.hidden) {
+                            l2.hidden = false;
+                            btn.dataset.linkedinStage = '2';
+                        }
+                        return;
+                    }
                     return;
                 }
                 if (kind === 'wechat') {
