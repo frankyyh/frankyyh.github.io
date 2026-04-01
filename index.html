@@ -975,6 +975,7 @@
         let asciiSourceText = '';
         let asciiFrames = [];
         let asciiSecondaryFrames = [];
+        let asciiTertiaryFrames = [];
         let asciiFrameIndex = 0;
         let asciiFrameDirection = 1;
         let asciiFrameLastSwitch = 0;
@@ -1164,7 +1165,8 @@
             // Size baseline follows the largest frame across both image sets.
             const primary = asciiFrames.length > 0 ? asciiFrames : [asciiSourceText || ''];
             const secondary = asciiSecondaryFrames.length > 0 ? asciiSecondaryFrames : [];
-            const source = [...primary, ...secondary];
+            const tertiary = asciiTertiaryFrames.length > 0 ? asciiTertiaryFrames : [];
+            const source = [...primary, ...secondary, ...tertiary];
             let maxChars = 1;
             let maxLines = 1;
             for (const frame of source) {
@@ -1187,6 +1189,17 @@
             return out;
         }
 
+        function tileLinesVerticallyFromBottom(lines, targetCount) {
+            const src = Array.isArray(lines) && lines.length > 0 ? lines : [''];
+            const out = [];
+            for (let i = 0; i < targetCount; i++) {
+                const idx = (src.length - 1 - (i % src.length) + src.length) % src.length;
+                out.push(src[idx]);
+            }
+            out.reverse();
+            return out;
+        }
+
         function getPingPongIndex(step, count) {
             if (count <= 1) return 0;
             const period = (count - 1) * 2;
@@ -1204,15 +1217,25 @@
             return asciiFrames[idx] || '';
         }
 
-        function getFrameTextByTileWorldIndex(tileWorldIndex, useSecondary) {
-            const framesSource = useSecondary ? asciiSecondaryFrames : asciiFrames;
+        function getFrameTextByTileWorldIndex(tileWorldIndex, sourceIndex) {
+            const sourceIdx = ((sourceIndex % 3) + 3) % 3;
+            const framesSource = sourceIdx === 0 ? asciiFrames : (sourceIdx === 1 ? asciiSecondaryFrames : asciiTertiaryFrames);
             if (framesSource.length === 0) return asciiSourceText || '';
             const stagger = Math.max(0, asciiAnimationConfig.staggerFrames | 0);
             // Keep phase continuity by tying delay to a stable world-tile index.
             // Positive index = right side, so right side lags by staggerFrames.
             const localStep = asciiFrameStep - (tileWorldIndex * stagger);
-            const idx = getPingPongIndex(localStep, framesSource.length);
-            return framesSource[idx] || '';
+            const m = framesSource.length;
+            const n = asciiFrames.length;
+            // Master clock: primary frame count. Otherwise short tertiary/secondary cycles look "faster".
+            if (n > 1 && m > 1) {
+                const phaseIdx = getPingPongIndex(localStep, n);
+                const frameIdx = m === n ? phaseIdx : Math.round((phaseIdx * (m - 1)) / (n - 1));
+                const clamped = Math.max(0, Math.min(m - 1, frameIdx));
+                return framesSource[clamped] || '';
+            }
+            const frameIdx = getPingPongIndex(localStep, m);
+            return framesSource[frameIdx] || '';
         }
 
         async function loadAsciiFramesFromManifest() {
@@ -1222,6 +1245,7 @@
                 const manifest = JSON.parse(manifestText);
                 const files = Array.isArray(manifest.frames) ? manifest.frames : [];
                 const secondaryFiles = Array.isArray(manifest.secondaryFrames) ? manifest.secondaryFrames : [];
+                const tertiaryFiles = Array.isArray(manifest.tertiaryFrames) ? manifest.tertiaryFrames : [];
                 // Backward compatibility: intervalMs
                 const frameIntervalCandidate =
                     (typeof manifest.frameIntervalMs === 'number' ? manifest.frameIntervalMs : manifest.intervalMs);
@@ -1255,7 +1279,14 @@
                     const text = await fetchTextIfExists(file.trim());
                     if (text !== null) loadedSecondary.push(text);
                 }
+                const loadedTertiary = [];
+                for (const file of tertiaryFiles) {
+                    if (typeof file !== 'string' || !file.trim()) continue;
+                    const text = await fetchTextIfExists(file.trim());
+                    if (text !== null) loadedTertiary.push(text);
+                }
                 asciiSecondaryFrames = loadedSecondary;
+                asciiTertiaryFrames = loadedTertiary;
                 return loaded.length > 0 ? loaded : null;
             } catch (error) {
                 console.warn('Invalid ascii-frames.json format:', error);
@@ -1308,6 +1339,9 @@
                     if (fallbackSecondary !== null) asciiSecondaryFrames = [fallbackSecondary];
                     else asciiSecondaryFrames = [...asciiFrames];
                 }
+                if (asciiTertiaryFrames.length === 0) {
+                    asciiTertiaryFrames = [...asciiSecondaryFrames];
+                }
                 asciiFrameIndex = 0;
                 refreshAsciiMetrics();
                 return true;
@@ -1322,6 +1356,9 @@
                     if (fallbackSecondary !== null) asciiSecondaryFrames = [fallbackSecondary];
                     else asciiSecondaryFrames = [...asciiFrames];
                 }
+                if (asciiTertiaryFrames.length === 0) {
+                    asciiTertiaryFrames = [...asciiSecondaryFrames];
+                }
                 asciiFrameIndex = 0;
                 refreshAsciiMetrics();
                 return true;
@@ -1333,6 +1370,7 @@
             asciiSourceText = fallback;
             const fallbackSecondary = await fetchTextIfExists('me1.txt');
             if (fallbackSecondary !== null) asciiSecondaryFrames = [fallbackSecondary];
+            if (asciiTertiaryFrames.length === 0) asciiTertiaryFrames = [...asciiSecondaryFrames];
             refreshAsciiMetrics();
             return true;
         }
@@ -1411,13 +1449,16 @@
             for (let i = 0; i < tileCount; i++) {
                 const x = firstTileX + i * tileW;
                 const tileWorldIndex = firstTileWorldIndex + i;
-                // Stable alternating assignment by world index prevents mid-motion source flips.
-                // Keeps startup layout: ... secondary, primary, secondary ... with center primary.
-                const useSecondary = Math.abs(tileWorldIndex % 2) === 1;
-                const rawLines = getAsciiLinesFromText(getFrameTextByTileWorldIndex(tileWorldIndex, useSecondary));
-                // If a frame is shorter than the global standard height, vertically tile it.
+                // Stable 3-way assignment by world index prevents mid-motion source flips.
+                // Keeps startup layout cycling: ... tertiary, secondary, primary ... with center primary.
+                const sourceIndex = ((tileWorldIndex % 3) + 3) % 3;
+                const rawLines = getAsciiLinesFromText(getFrameTextByTileWorldIndex(tileWorldIndex, sourceIndex));
+                // Fill viewport vertically for short frames.
+                // ascii/ascii2: fill from bottom to top; ascii3: fill from top to bottom.
                 const tileLines = rawLines.length < maxLineCount
-                    ? tileLinesVertically(rawLines, maxLineCount)
+                    ? (sourceIndex === 2
+                        ? tileLinesVertically(rawLines, maxLineCount)
+                        : tileLinesVerticallyFromBottom(rawLines, maxLineCount))
                     : rawLines;
                 for (let row = 0; row < tileLines.length; row++) {
                     ctx.fillText(tileLines[row], x, startY + row * lineH);

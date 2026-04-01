@@ -59,5 +59,28 @@
     "ascii2/frame-18.txt",
     "ascii2/frame-19.txt",
     "ascii2/frame-20.txt"
+  ],
+  "tertiaryFrames": [
+    "ascii3/frame-00.txt",
+    "ascii3/frame-01.txt",
+    "ascii3/frame-02.txt",
+    "ascii3/frame-03.txt",
+    "ascii3/frame-04.txt",
+    "ascii3/frame-05.txt",
+    "ascii3/frame-06.txt",
+    "ascii3/frame-07.txt",
+    "ascii3/frame-08.txt",
+    "ascii3/frame-09.txt",
+    "ascii3/frame-10.txt",
+    "ascii3/frame-11.txt",
+    "ascii3/frame-12.txt",
+    "ascii3/frame-13.txt",
+    "ascii3/frame-14.txt",
+    "ascii3/frame-15.txt",
+    "ascii3/frame-16.txt",
+    "ascii3/frame-17.txt",
+    "ascii3/frame-18.txt",
+    "ascii3/frame-19.txt",
+    "ascii3/frame-20.txt"
   ]
 }
