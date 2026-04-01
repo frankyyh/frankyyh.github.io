@@ -926,6 +926,7 @@
         
         // Wait for all resources to load, then show language/start shell.
         async function initializeApp() {
+            let gamesPrefetchPromise = Promise.resolve();
             try {
                 // Wait for fonts to load (with timeout)
                 try {
@@ -937,6 +938,9 @@
                 } catch (e) {
                     console.warn('Font loading check failed:', e);
                 }
+
+                // Prefetch games list (games.json + sort years + thumbnails) so opening Games is instant.
+                gamesPrefetchPromise = loadGamesData();
                 
                 // Initialize audio context (don't suspend, let it start automatically)
                 try {
@@ -959,6 +963,7 @@
                 if (elapsed < minLoadingDurationMs) {
                     await new Promise(resolve => setTimeout(resolve, minLoadingDurationMs - elapsed));
                 }
+                await gamesPrefetchPromise;
                 resourcesReady = true;
                 await showEntryScreen();
             } catch (error) {
@@ -967,6 +972,7 @@
                 if (elapsed < minLoadingDurationMs) {
                     await new Promise(resolve => setTimeout(resolve, minLoadingDurationMs - elapsed));
                 }
+                await gamesPrefetchPromise.catch(() => {});
                 resourcesReady = true;
                 await showEntryScreen();
             }
@@ -2342,6 +2348,18 @@
             gamesTitleFitResizeTimer = window.setTimeout(() => scheduleFitGamesOverviewTitles(), 120);
         }
 
+        let gamesDataLoaded = false;
+
+        function preloadGameThumbnails(games) {
+            const list = Array.isArray(games) ? games : [];
+            for (let i = 0; i < list.length; i++) {
+                const src = (list[i].image || '').trim();
+                if (!src) continue;
+                const im = new Image();
+                im.src = src;
+            }
+        }
+
         function renderGamesList(games) {
             if (!gamesListRoot) return;
             gamesListRoot.replaceChildren();
@@ -2387,6 +2405,7 @@
         }
 
         async function loadGamesData() {
+            if (gamesDataLoaded) return;
             try {
                 const res = await fetch('games.json', { cache: 'no-store' });
                 if (!res.ok) throw new Error(String(res.status));
@@ -2405,8 +2424,11 @@
                 });
                 games = withYears.map((x) => x.game);
                 renderGamesList(games);
+                preloadGameThumbnails(games);
+                gamesDataLoaded = true;
             } catch (e) {
                 console.warn(e);
+                gamesDataLoaded = false;
                 if (!gamesListRoot) return;
                 gamesListRoot.replaceChildren();
                 const p = document.createElement('p');
