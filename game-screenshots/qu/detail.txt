@@ -1,0 +1,34 @@
+这个游戏源于一个想法：有没有什么方法可以把两种不同视角的移动方式完美地融合在一起呢？
+
+
+This game started from a simple idea: is there a way to seamlessly combine two different movement perspectives?
+
+
+一个是2D俯视角，可以自由上下左右移动。
+
+
+One is a 2D top-down view, where you can move freely in all directions.
+
+
+一个是2D侧面视角，可以左右移动并跳跃。
+
+
+The other is a 2D side view, where you can move left and right and jump.
+
+
+在某个时刻我突然想到了按钮，当你把鼠标放上去时它们会被高亮。
+
+
+At some point, I suddenly thought about buttons: how they highlight when you hover over them.
+
+
+就像是你的鼠标被包在了一个特定的范围内。
+
+
+It’s almost like your cursor is confined within a specific area.
+
+
+于是我就顺着这个思路，从最常见的游戏菜单出发，做了这个游戏。
+
+
+Following that idea, I started from something very familiar, the game menu, and built this game from there.

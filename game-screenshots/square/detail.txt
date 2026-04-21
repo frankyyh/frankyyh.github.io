@@ -1,0 +1,36 @@
+这个游戏的主题是迷宫。
+
+
+The theme of this game is a maze.
+
+
+但我又不想做一个那种，普通的，很常见的迷宫。
+
+
+But I didn’t want to make a typical, conventional maze.
+
+
+我更想做一种类似于门和钥匙的感觉。
+
+
+I was more interested in something closer to a “door and key” dynamic.
+
+
+门就在这里，但是你得先找到钥匙才能通过。
+
+
+The door is right there, but you need to find the key before you can pass through.
+
+
+于是这个游戏就诞生了。
+
+
+That’s how this game came into being.
+
+
+另外一个我在尝试的东西是感官的探索。
+听觉、视觉、触觉，移动的方向，以及最重要的，如何营造那种在2D俯视角的角度上跳跃的感觉？
+
+
+Another thing I’ve been exploring is perception:
+sound, visuals, touch, direction of movement, and most importantly, how to create the feeling of jumping within a 2D top-down perspective.

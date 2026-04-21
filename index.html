@@ -4,11 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>fyyh</title>
-    <!-- Favicon: favicon.png in the same folder as index.html (tab icon). Use http://localhost, not file:// — Chrome often hides tab icons for local files. Hard-refresh (Ctrl+F5) after replacing the file. -->
-    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png?v=1">
-    <link rel="icon" type="image/png" href="favicon.png?v=1">
-    <link rel="shortcut icon" type="image/png" href="favicon.png?v=1">
-    <link rel="apple-touch-icon" href="favicon.png?v=1">
+    <!-- favicon.png 与 index.html 同目录（标签页图标）。本地 file:// 时部分浏览器不显示；换图后 Ctrl+F5。 -->
+    <link rel="icon" type="image/png" href="favicon.png?v=2" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png?v=2">
+    <link rel="shortcut icon" type="image/png" href="favicon.png?v=2">
+    <link rel="apple-touch-icon" href="favicon.png?v=2">
     <meta property="og:type" content="website">
     <meta property="og:title" content="fyyh">
     <meta property="og:image" content="site-icons/og-image.png">
@@ -19,6 +19,12 @@
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+        }
+
+        :root {
+            --home-nav-offset: 96px;
+            /* Works 列表标题与游戏详情页标题共用同一字号 */
+            --games-page-title-font-size: clamp(64px, 12vw, 132px);
         }
 
         html {
@@ -139,17 +145,35 @@
             display: none;
         }
         
-        #loading-triangle {
+        #loading-triangle,
+        .loading-triangle {
             width: 44px;
             height: 44px;
             animation: loadingTriangleSpinPulse 1.6s ease-in-out infinite;
             transform-origin: 50% 50%;
         }
 
-        #loading-triangle svg {
+        #loading-triangle svg,
+        .loading-triangle svg {
             width: 100%;
             height: 100%;
             display: block;
+        }
+
+        .subpage-triangle-loading {
+            position: absolute;
+            inset: 0;
+            z-index: 40;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            pointer-events: auto;
+        }
+
+        #games-panel-scroll,
+        #contact-panel-scroll {
+            position: relative;
         }
 
         @keyframes loadingTriangleSpinPulse {
@@ -171,9 +195,11 @@
             color: #fff;
             z-index: 10001;
             display: none;
-            align-items: center;
+            flex-direction: column;
+            align-items: stretch;
             justify-content: flex-start;
             font-family: 'Space Mono', Consolas, monospace;
+            overflow: hidden;
         }
 
         #entry-screen.visible {
@@ -245,11 +271,15 @@
             display: flex;
         }
 
+        /*
+         * ASCII 全屏铺满视口，但 z-index 低于 loading / entry / 顶栏与各面板，
+         * 像最底层 rendering：只在「空隙」里露出来，其余被上层盖住。
+         */
         #ascii-overlay {
             position: fixed;
             inset: 0;
             display: none;
-            z-index: 10000;
+            z-index: 9999;
             background: #000;
             pointer-events: none;
         }
@@ -264,21 +294,100 @@
             display: block;
         }
 
-        #ascii-close {
-            position: fixed;
-            top: 16px;
-            right: 16px;
-            z-index: 10004;
+        /* 主页：菜单「球面」透视，由 --sphere-rx / --sphere-ry 随指针倾斜 */
+        #home-nav-arena {
+            --sphere-rx: 0deg;
+            --sphere-ry: 0deg;
+            position: absolute;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10010;
+            pointer-events: none;
+            perspective: min(1400px, 200vw);
+            perspective-origin: 50% 42%;
+        }
+
+        #home-nav-arena.hidden {
             display: none;
         }
 
-        #home-nav {
-            margin-left: 84px;
+        #home-nav-tilt {
+            position: relative;
             display: flex;
             flex-direction: column;
-            align-items: flex-start;
-            gap: 12px;
-            z-index: 10002;
+            align-items: center;
+            justify-content: center;
+            transform-style: preserve-3d;
+            transform: rotateX(var(--sphere-rx, 0deg)) rotateY(var(--sphere-ry, 0deg));
+            transform-origin: center center;
+            pointer-events: none;
+        }
+
+        #home-nav-sphere {
+            position: relative;
+            z-index: 2;
+            transform-style: preserve-3d;
+            pointer-events: auto;
+        }
+
+        #home-nav {
+            position: relative;
+            left: auto;
+            top: auto;
+            transform: none;
+            width: min(92vw, 720px);
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 22px;
+            transform-style: preserve-3d;
+        }
+
+        #home-nav.hidden {
+            display: none;
+        }
+
+        #home-nav > .home-nav-btn {
+            transform-origin: center center;
+            backface-visibility: hidden;
+            transition:
+                color 0.12s ease,
+                background-color 0.12s ease;
+        }
+
+        #home-nav > .home-nav-btn:nth-child(1) {
+            transform: rotateY(26deg) translateZ(22px);
+        }
+
+        #home-nav > .home-nav-btn:nth-child(2) {
+            transform: rotateY(0deg) translateZ(44px);
+        }
+
+        #home-nav > .home-nav-btn:nth-child(3) {
+            transform: rotateY(-26deg) translateZ(22px);
+        }
+
+        #home-nav > .home-nav-btn:nth-child(1):hover,
+        #home-nav > .home-nav-btn:nth-child(1):focus-visible {
+            transform: rotateY(26deg) translateZ(22px) scale(1.02);
+            outline: none;
+        }
+
+        #home-nav > .home-nav-btn:nth-child(2):hover,
+        #home-nav > .home-nav-btn:nth-child(2):focus-visible {
+            transform: rotateY(0deg) translateZ(44px) scale(1.02);
+            outline: none;
+        }
+
+        #home-nav > .home-nav-btn:nth-child(3):hover,
+        #home-nav > .home-nav-btn:nth-child(3):focus-visible {
+            transform: rotateY(-26deg) translateZ(22px) scale(1.02);
+            outline: none;
         }
 
         .home-nav-btn {
@@ -308,17 +417,43 @@
             background: transparent;
         }
 
+        .subpage-back-btn {
+            position: absolute;
+            left: max(16px, env(safe-area-inset-left, 0px));
+            top: max(10px, env(safe-area-inset-top, 0px));
+            width: fit-content;
+            margin: 0;
+            padding: 0 10px;
+            border: none;
+            background: transparent;
+            color: #fff;
+            font-family: 'Space Mono', Consolas, monospace;
+            font-size: 54px;
+            line-height: 1;
+            z-index: 10020;
+            pointer-events: auto;
+        }
+
+        .subpage-back-btn:hover,
+        .subpage-back-btn:focus-visible {
+            color: #000;
+            background: #fff;
+            outline: none;
+        }
+
+        /* About：叠在 ASCII 之上；左 about.txt，右 favicon 入口进 artist statement */
         #about-panel {
             position: fixed;
             top: 0;
+            left: 0;
             right: 0;
             bottom: 0;
-            width: min(58vw, 720px);
+            width: auto;
             box-sizing: border-box;
-            padding: 24px 28px;
-            background: #000;
+            padding: 0;
+            background: transparent;
             color: #fff;
-            z-index: 10005;
+            z-index: 10006;
             overflow: hidden;
             display: none;
             flex-direction: column;
@@ -326,19 +461,171 @@
             font-family: 'Space Mono', Consolas, monospace;
             font-size: 38px;
             line-height: 1.2;
+            pointer-events: none;
         }
 
         #about-panel.visible {
             display: flex;
         }
 
-        #about-text {
+        #about-panel-inner {
+            position: relative;
+            display: flex;
+            flex-direction: row;
+            flex: 1 1 auto;
+            min-height: 0;
+            height: 100%;
+            box-sizing: border-box;
+            padding: 82px max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+            align-items: stretch;
+            justify-content: flex-start;
+            gap: 20px;
+        }
+
+        /* 左、右各占 about 内区约一半（视觉上约半屏 + 半屏） */
+        .about-column--text {
+            flex: 1 1 0;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            pointer-events: auto;
+        }
+
+        .about-column--statement {
+            flex: 1 1 0;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            pointer-events: auto;
+        }
+
+        /* 隐形场地：menu 以下、about 文本右侧，供图标反弹运动 */
+        .about-statement-playfield {
+            position: relative;
+            flex: 1 1 auto;
+            min-height: 0;
+            width: 100%;
+            overflow: hidden;
+            background: transparent;
+            border: none;
+            outline: none;
+            box-shadow: none;
+        }
+
+        .about-text-scroll {
+            width: 100%;
+            max-width: 100%;
+            box-sizing: border-box;
+            flex: 1 1 auto;
+            min-height: 0;
+            max-height: 100%;
+            padding: 20px 18px 24px;
+            margin: 0;
+            justify-content: flex-start;
+            align-items: stretch;
+            background: transparent;
+            border: none;
+            outline: none;
+            box-shadow: none;
+            pointer-events: auto;
+        }
+
+        /* Artist statement 入口：仅图片 hover 反色，无背景/描边框 */
+        .about-statement-btn {
+            position: absolute;
+            left: 0;
+            top: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            margin: 0;
+            border: none;
+            background: transparent;
+            color: #fff;
+            font-family: 'Space Mono', Consolas, monospace;
+            cursor: none;
+            z-index: 1;
+            box-shadow: none;
+        }
+
+        .about-statement-btn img {
+            display: block;
+            width: clamp(calc(216px * 0.7), calc(36vmin * 0.7), calc(420px * 0.7));
+            height: auto;
+            pointer-events: none;
+        }
+
+        .about-statement-btn:hover,
+        .about-statement-btn:focus-visible {
+            background: transparent;
+            outline: none;
+        }
+
+        .about-statement-btn:hover img,
+        .about-statement-btn:focus-visible img {
+            filter: invert(1);
+        }
+
+        .about-statement-btn.suppress-hover:hover,
+        .about-statement-btn.suppress-hover:focus-visible {
+            background: transparent;
+        }
+
+        .about-statement-btn.suppress-hover:hover img,
+        .about-statement-btn.suppress-hover:focus-visible img {
+            filter: none;
+        }
+
+        .about-text-root {
             margin: 0;
             width: 100%;
+            max-width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+            font-size: inherit;
+            line-height: 1.25;
+        }
+
+        .about-text-root > .about-line {
+            align-self: flex-start;
+        }
+
+        /*
+         * 短行要紧贴文字宽度；勿用 width:fit-content + pre-wrap，否则会用满父级宽度（与最长行一样宽）。
+         * inline-block + width:auto 用 shrink-to-fit，长行仍受 max-width:100% 限制而换行。
+         */
+        .about-line {
+            display: inline-block;
+            width: auto;
+            max-width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+            margin: 0;
+            padding: 12px 18px 14px;
+            background: #000;
+            color: #fff;
             text-align: left;
             white-space: pre-wrap;
             word-break: break-word;
-            flex-shrink: 0;
+            font-size: inherit;
+            line-height: inherit;
+            vertical-align: top;
+        }
+
+        /* about.txt 里的空行：只要垂直留白，不要黑底条（避免出现「一个空格宽」的框） */
+        .about-line-spacer {
+            flex: 0 0 auto;
+            width: 0;
+            height: 12px;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            pointer-events: none;
         }
 
         .side-panel-scroll {
@@ -360,24 +647,25 @@
         .side-panel-scroll--about {
             display: flex;
             flex-direction: column;
-            justify-content: center;
+            justify-content: flex-start;
         }
 
         .side-panel-scroll--contact {
             display: flex;
             flex-direction: column;
             justify-content: center;
-            align-items: flex-start;
+            align-items: center;
+            min-height: 0;
         }
 
         #games-panel {
             position: fixed;
             top: 0;
+            left: 0;
             right: 0;
             bottom: 0;
-            width: min(58vw, 720px);
             box-sizing: border-box;
-            padding: 24px 28px;
+            padding: 84px 28px 24px;
             background: #000;
             color: #fff;
             z-index: 10005;
@@ -394,14 +682,27 @@
             display: flex;
         }
 
+        #games-panel.games-panel--detail #games-panel-scroll {
+            overflow-y: hidden;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        #games-panel.games-panel--detail #games-detail-view {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
         #contact-panel {
             position: fixed;
-            top: 0;
-            right: 0;
-            bottom: 0;
-            width: min(58vw, 720px);
+            inset: 0;
+            width: auto;
             box-sizing: border-box;
-            padding: 24px 28px;
+            padding: 84px 28px 24px;
             background: #000;
             color: #fff;
             z-index: 10005;
@@ -421,14 +722,19 @@
         #contact-methods {
             display: flex;
             flex-direction: column;
-            align-items: flex-start;
+            align-items: center;
+            justify-content: center;
             gap: 12px;
+            width: 100%;
+            max-width: min(92vw, 720px);
+            margin: 0 auto;
+            box-sizing: border-box;
         }
 
         #contact-methods .contact-row-btn {
             max-width: 100%;
             word-break: break-word;
-            text-align: left;
+            text-align: center;
         }
 
         #contact-methods .contact-copy-only {
@@ -440,7 +746,7 @@
         #contact-methods .contact-row-btn.contact-linkedin-expanded {
             display: flex;
             flex-direction: column;
-            align-items: flex-start;
+            align-items: center;
             gap: 24px;
         }
 
@@ -467,11 +773,25 @@
             visibility: visible;
         }
 
+        /* Works 列表：纵向滚动；flex 子项须 min-width:0 才能在面板内正确纵向 overflow */
+        #games-panel:not(.games-panel--detail) #games-panel-scroll {
+            min-width: 0;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+
+        #games-list-view {
+            min-height: 0;
+        }
+
         #games-list-root {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 20px 16px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 24px 20px;
+            padding: 8px 4px 28px;
             align-items: start;
+            width: 100%;
+            box-sizing: border-box;
         }
 
         #games-list-root > .games-error {
@@ -482,19 +802,33 @@
             display: flex;
             flex-direction: column;
             align-items: stretch;
+            gap: 4px;
             width: 100%;
             min-width: 0;
             box-sizing: border-box;
             margin: 0;
-            padding: 12px 10px;
+            padding: 12px 10px 16px;
             font-family: inherit;
             font-size: 38px;
             line-height: 1.2;
             color: #fff;
             background: transparent;
             border: none;
-            text-align: left;
+            text-align: center;
             appearance: none;
+            overflow: visible;
+        }
+
+        /* 与缩略图之间的剩余高度里，把标题垂直居中（配合 equalize 的 min-height） */
+        .games-row-title-slot {
+            flex: 1 1 auto;
+            min-height: 0;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: visible;
         }
 
         .games-row:hover,
@@ -505,34 +839,36 @@
         }
 
         .games-row-title {
-            margin: 0 0 10px;
+            margin: 0;
+            width: 100%;
             font-weight: normal;
-            text-align: left;
+            font-size: var(--games-page-title-font-size);
+            line-height: 0.95;
+            text-align: center;
             overflow-wrap: anywhere;
             word-break: break-word;
-            line-height: 1.2;
             max-width: 100%;
-        }
-
-        .games-row-title.games-row-title--clamped {
-            display: -webkit-box;
-            -webkit-box-orient: vertical;
-            -webkit-line-clamp: 2;
-            line-clamp: 2;
-            overflow: hidden;
+            overflow: visible;
         }
 
         .games-row-media {
+            flex: 0 0 auto;
             width: 100%;
-            margin: 0 0 10px;
+            height: 66.666vh;
+            max-height: 66.666vh;
             min-height: 0;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .games-row-media img {
             display: block;
             max-width: 100%;
+            max-height: 100%;
+            width: auto;
             height: auto;
-            max-height: 220px;
             object-fit: contain;
         }
 
@@ -542,7 +878,7 @@
         }
 
         .games-row-media--empty {
-            min-height: 120px;
+            min-height: 66.666vh;
             border: 1px dashed rgba(255, 255, 255, 0.35);
             background: rgba(255, 255, 255, 0.06);
         }
@@ -560,79 +896,186 @@
             margin: 0;
         }
 
-        .games-play-link {
-            display: inline-block;
-            margin: 8px 0 16px;
-            padding: 10px 16px;
+        .games-detail-header {
+            margin: 0;
+            padding: 0 0 72px;
+            flex: 0 0 auto;
+        }
+
+        .games-detail-title {
+            margin: 0;
             font-family: inherit;
-            font-size: 20px;
-            line-height: 1.2;
-            color: #fff;
-            background: #000;
-            border: 1px solid #fff;
-            text-decoration: none;
-            box-sizing: border-box;
-        }
-
-        .games-play-link:hover,
-        .games-play-link:focus-visible {
-            color: #000;
-            background: #fff;
-            outline: none;
-        }
-
-        .games-detail-dl {
-            margin: 0;
-            padding: 0;
-            font-size: 20px;
-            line-height: 1.45;
-        }
-
-        .games-detail-dl dt {
-            margin: 14px 0 4px;
+            font-size: var(--games-page-title-font-size);
+            line-height: 0.95;
             font-weight: normal;
-            color: rgba(255, 255, 255, 0.75);
+            color: #fff;
+            text-align: center;
+            overflow-wrap: anywhere;
+            word-break: break-word;
         }
 
-        .games-detail-dl dt:first-child {
-            margin-top: 0;
-        }
-
-        .games-detail-dl dd {
+        .games-detail-subline {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            align-items: start;
+            justify-items: center;
+            gap: 6px 30px;
             margin: 0;
+            padding: 0 0 14px;
+            font-size: 19px;
+            line-height: 1.45;
+            color: #fff;
+            flex: 0 0 auto;
+        }
+
+        .games-detail-subitem {
+            margin: 0;
+            text-align: center;
             white-space: pre-wrap;
             word-break: break-word;
         }
 
-        .games-detail-loading,
+        .games-detail-subitem--value {
+            opacity: 0.95;
+        }
+
+        .games-detail-subitem-link {
+            display: inline-block;
+            width: max-content;
+            justify-self: center;
+            margin: 0;
+            padding: 0;
+            border: none;
+            background: transparent;
+            color: #fff;
+            font: inherit;
+            text-decoration: none;
+        }
+
+        .games-detail-subitem-link:hover,
+        .games-detail-subitem-link:focus-visible {
+            color: #000;
+            background: #fff;
+            outline: none;
+            padding: 0 6px;
+        }
+
+        .games-detail-content {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            gap: 24px;
+            align-items: stretch;
+            padding-top: 72px;
+            min-height: 0;
+            flex: 1 1 auto;
+            overflow: hidden;
+        }
+
+        .games-detail-content > * {
+            min-height: 0;
+        }
+
+        .games-detail-description-pane {
+            margin: 0;
+            padding: 0;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .games-detail-text-root {
+            margin: 0;
+            width: 100%;
+            max-width: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 8px;
+            font-family: 'Space Mono', Consolas, monospace;
+            font-size: 38px;
+            line-height: 1.25;
+            color: #fff;
+        }
+
+        .games-detail-text-line {
+            display: inline-block;
+            width: auto;
+            max-width: 100%;
+            min-width: 0;
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            color: inherit;
+            text-align: left;
+            white-space: pre-wrap;
+            word-break: break-word;
+            font-size: inherit;
+            line-height: inherit;
+            vertical-align: top;
+        }
+
+        .games-detail-text-spacer {
+            flex: 0 0 auto;
+            width: 0;
+            height: 12px;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            pointer-events: none;
+        }
+
+        .games-detail-description-pane::-webkit-scrollbar {
+            display: none;
+            width: 0;
+            height: 0;
+        }
+
+        .games-detail-gallery {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            align-items: stretch;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            min-height: 0;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .games-detail-gallery::-webkit-scrollbar {
+            display: none;
+            width: 0;
+            height: 0;
+        }
+
+        .games-detail-gallery img {
+            display: block;
+            width: 100%;
+            height: auto;
+            object-fit: contain;
+        }
+
+        #games-detail-view {
+            min-height: 0;
+        }
+
+        #games-detail-body {
+            display: flex;
+            flex-direction: column;
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow: hidden;
+        }
+
         .games-detail-err {
             margin: 0;
             font-size: 20px;
             line-height: 1.45;
             opacity: 0.9;
-        }
-
-        .games-detail-description-block {
-            margin: 28px 0 0;
-        }
-
-        .games-detail-description-title {
-            margin: 0 0 4px;
-            font-family: inherit;
-            font-size: 20px;
-            line-height: 1.45;
-            font-weight: normal;
-            color: rgba(255, 255, 255, 0.75);
-        }
-
-        .games-detail-description-text {
-            margin: 0;
-            font-family: inherit;
-            font-size: 18px;
-            line-height: 1.5;
-            white-space: pre-wrap;
-            word-break: break-word;
-            color: #fff;
         }
 
         .flat-panel {
@@ -731,11 +1174,16 @@
         </div>
     </div>
     <div id="entry-screen">
-        <div id="home-nav">
-            <button id="home-about" class="home-nav-btn" type="button">About</button>
-            <button id="home-bio" class="home-nav-btn" type="button">Bio</button>
-            <button id="home-games" class="home-nav-btn" type="button">Games</button>
-            <button id="home-contact" class="home-nav-btn" type="button">Contact</button>
+        <div id="home-nav-arena">
+            <div id="home-nav-tilt">
+                <div id="home-nav-sphere">
+                    <div id="home-nav">
+                        <button id="home-about" class="home-nav-btn" type="button">About/关于我</button>
+                        <button id="home-games" class="home-nav-btn" type="button">Works/作品</button>
+                        <button id="home-contact" class="home-nav-btn" type="button">Contact/联系</button>
+                    </div>
+                </div>
+            </div>
         </div>
         <div id="entry-panel">
             <div id="entry-title">Choose Language / 选择语言</div>
@@ -771,22 +1219,35 @@
         </div>
     </div>
     <div id="about-panel" aria-hidden="true">
-        <div class="side-panel-scroll side-panel-scroll--about">
-            <pre id="about-text"></pre>
+        <button type="button" id="about-back-btn" class="subpage-back-btn" aria-label="Back">←</button>
+        <div id="about-panel-inner">
+            <div class="about-column about-column--text">
+                <div class="side-panel-scroll side-panel-scroll--about about-text-scroll">
+                    <div id="about-text" class="about-text-root"></div>
+                </div>
+            </div>
+            <div class="about-column about-column--statement">
+                <div id="about-statement-playfield" class="about-statement-playfield" aria-hidden="true">
+                    <button type="button" id="about-statement-btn" class="about-statement-btn" aria-label="Artist statement">
+                        <img src="favicon.png?v=2" alt="" width="384" height="384" decoding="async" draggable="false">
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
     <div id="games-panel" aria-hidden="true">
+        <button type="button" id="games-back-btn" class="subpage-back-btn" aria-label="Back">←</button>
         <div id="games-panel-scroll" class="side-panel-scroll side-panel-scroll--games">
             <div id="games-list-view">
                 <div id="games-list-root"></div>
             </div>
             <div id="games-detail-view" hidden>
-                <button type="button" id="games-detail-back" class="games-row">← All games</button>
                 <div id="games-detail-body"></div>
             </div>
         </div>
     </div>
     <div id="contact-panel" aria-hidden="true">
+        <button type="button" id="contact-back-btn" class="subpage-back-btn" aria-label="Back">←</button>
         <div id="contact-panel-scroll" class="side-panel-scroll side-panel-scroll--contact">
             <div id="contact-methods">
                 <button type="button" class="home-nav-btn contact-row-btn contact-copy-only" data-contact="email" data-label="Email">Email</button>
@@ -798,7 +1259,6 @@
         </div>
     </div>
     <div id="ascii-overlay">
-        <button id="ascii-close" class="entry-btn" type="button">Close</button>
         <canvas id="ascii-canvas"></canvas>
     </div>
     <div aria-hidden="true" style="position:absolute;left:0;top:0;width:0;height:0;margin:0;padding:0;border:0;overflow:hidden;clip:rect(0,0,0,0);font-family:'Space Mono',monospace;">.</div>
@@ -826,23 +1286,250 @@
         const rightContinueBtn = document.getElementById('right-continue-btn');
         const asciiOverlay = document.getElementById('ascii-overlay');
         const asciiCanvas = document.getElementById('ascii-canvas');
-        const asciiClose = document.getElementById('ascii-close');
         const langZhBtn = document.getElementById('lang-zh');
         const langEnBtn = document.getElementById('lang-en');
         const homeAboutBtn = document.getElementById('home-about');
-        const homeBioBtn = document.getElementById('home-bio');
         const homeGamesBtn = document.getElementById('home-games');
         const homeContactBtn = document.getElementById('home-contact');
+        const homeNav = document.getElementById('home-nav');
+        const homeNavArena = document.getElementById('home-nav-arena');
         const aboutPanel = document.getElementById('about-panel');
+        const aboutPanelInner = document.getElementById('about-panel-inner');
+        const aboutBackBtn = document.getElementById('about-back-btn');
         const aboutTextEl = document.getElementById('about-text');
+        const aboutStatementBtn = document.getElementById('about-statement-btn');
+        const aboutStatementPlayfield = document.getElementById('about-statement-playfield');
+
+        const ABOUT_STATEMENT_FLOAT_SPEED = 32;
+        const ABOUT_STATEMENT_DODGE_COUNT = 3;
+        /** 闪避时新位置相对旧位置的最小位移：约为场地可移动对角线的一大部分（达不到时再放宽） */
+        const ABOUT_STATEMENT_MIN_DODGE_FRAC = 0.52;
+        let aboutStatementDodgesLeft = 0;
+        let aboutStatementFloatRaf = 0;
+        let aboutStatementFloatLast = 0;
+        let aboutStatementVx = 0;
+        let aboutStatementVy = 0;
+        let aboutStatementFloatActive = false;
+
+        function clampAboutStatementBtnToPlayfield() {
+            if (!aboutStatementBtn || !aboutStatementPlayfield) return;
+            const fw = aboutStatementPlayfield.clientWidth;
+            const fh = aboutStatementPlayfield.clientHeight;
+            const bw = aboutStatementBtn.offsetWidth;
+            const bh = aboutStatementBtn.offsetHeight;
+            const maxX = Math.max(0, fw - bw);
+            const maxY = Math.max(0, fh - bh);
+            const x = Math.min(maxX, Math.max(0, parseFloat(aboutStatementBtn.style.left) || 0));
+            const y = Math.min(maxY, Math.max(0, parseFloat(aboutStatementBtn.style.top) || 0));
+            aboutStatementBtn.style.left = `${x}px`;
+            aboutStatementBtn.style.top = `${y}px`;
+        }
+
+        function initAboutStatementFloatPosition() {
+            if (!aboutStatementBtn || !aboutStatementPlayfield) return;
+            clampAboutStatementBtnToPlayfield();
+            const fw = aboutStatementPlayfield.clientWidth;
+            const fh = aboutStatementPlayfield.clientHeight;
+            const bw = aboutStatementBtn.offsetWidth;
+            const bh = aboutStatementBtn.offsetHeight;
+            const maxX = Math.max(0, fw - bw);
+            const maxY = Math.max(0, fh - bh);
+            aboutStatementBtn.style.left = `${Math.random() * maxX}px`;
+            aboutStatementBtn.style.top = `${Math.random() * maxY}px`;
+        }
+
+        function resetAboutStatementDodges() {
+            aboutStatementDodgesLeft = ABOUT_STATEMENT_DODGE_COUNT;
+        }
+
+        /** 将按钮瞬移到 playfield 内、不包含 (plx, ply) 的矩形（首次 dodge 实现，无插值动画） */
+        function teleportAboutStatementAwayFrom(plx, ply) {
+            if (!aboutStatementBtn || !aboutStatementPlayfield) return;
+            const fw = aboutStatementPlayfield.clientWidth;
+            const fh = aboutStatementPlayfield.clientHeight;
+            const bw = aboutStatementBtn.offsetWidth;
+            const bh = aboutStatementBtn.offsetHeight;
+            const maxX = Math.max(0, fw - bw);
+            const maxY = Math.max(0, fh - bh);
+            const ox = parseFloat(aboutStatementBtn.style.left) || 0;
+            const oy = parseFloat(aboutStatementBtn.style.top) || 0;
+            const ocx = ox + bw * 0.5;
+            const ocy = oy + bh * 0.5;
+            const maxCenterSpan = Math.hypot(Math.max(0, fw - bw), Math.max(0, fh - bh));
+            const minDodgeBase =
+                maxCenterSpan > 0
+                    ? Math.min(
+                          maxCenterSpan * 0.95,
+                          Math.max((bw + bh) * 0.55, maxCenterSpan * ABOUT_STATEMENT_MIN_DODGE_FRAC)
+                      )
+                    : 0;
+            const inside = (nx, ny) =>
+                plx >= nx && plx <= nx + bw && ply >= ny && ply <= ny + bh;
+            const centerDistSq = (nx, ny) => {
+                const ncx = nx + bw * 0.5;
+                const ncy = ny + bh * 0.5;
+                const dx = ncx - ocx;
+                const dy = ncy - ocy;
+                return dx * dx + dy * dy;
+            };
+            const tryPick = (minDist, randomTries) => {
+                const minSq = minDist * minDist;
+                const ok = (nx, ny) =>
+                    !inside(nx, ny) && (minDist <= 0 || centerDistSq(nx, ny) >= minSq);
+                let nx = 0;
+                let ny = 0;
+                for (let i = 0; i < randomTries; i++) {
+                    nx = Math.random() * maxX;
+                    ny = Math.random() * maxY;
+                    if (ok(nx, ny)) return { nx, ny };
+                }
+                const corners = [
+                    [0, 0],
+                    [maxX, 0],
+                    [0, maxY],
+                    [maxX, maxY]
+                ];
+                corners.sort(
+                    (a, b) =>
+                        centerDistSq(b[0], b[1]) - centerDistSq(a[0], a[1])
+                );
+                for (let ci = 0; ci < corners.length; ci++) {
+                    nx = corners[ci][0];
+                    ny = corners[ci][1];
+                    if (ok(nx, ny)) return { nx, ny };
+                }
+                return null;
+            };
+            const relaxSteps = [minDodgeBase, minDodgeBase * 0.55, minDodgeBase * 0.22, 0];
+            let picked = null;
+            for (let s = 0; s < relaxSteps.length && !picked; s++) {
+                picked = tryPick(relaxSteps[s], s === 0 ? 72 : 32);
+            }
+            let nx = 0;
+            let ny = 0;
+            if (picked) {
+                nx = picked.nx;
+                ny = picked.ny;
+            } else {
+                nx = plx < fw / 2 ? maxX : 0;
+                ny = ply < fh / 2 ? maxY : 0;
+            }
+            aboutStatementBtn.style.left = `${nx}px`;
+            aboutStatementBtn.style.top = `${ny}px`;
+            const angle = Math.random() * Math.PI * 2;
+            aboutStatementVx = Math.cos(angle) * ABOUT_STATEMENT_FLOAT_SPEED;
+            aboutStatementVy = Math.sin(angle) * ABOUT_STATEMENT_FLOAT_SPEED;
+        }
+
+        function tryAboutStatementPointerDodge(event) {
+            if (!aboutStatementBtn || !aboutStatementPlayfield) return;
+            if (aboutStatementDodgesLeft <= 0) return;
+            if (!aboutPanel.classList.contains('visible')) return;
+            const rect = aboutStatementPlayfield.getBoundingClientRect();
+            const plx = event.clientX - rect.left;
+            const ply = event.clientY - rect.top;
+            aboutStatementDodgesLeft--;
+            teleportAboutStatementAwayFrom(plx, ply);
+        }
+
+        function stopAboutStatementFloat() {
+            aboutStatementFloatActive = false;
+            if (aboutStatementFloatRaf) {
+                cancelAnimationFrame(aboutStatementFloatRaf);
+                aboutStatementFloatRaf = 0;
+            }
+        }
+
+        function tickAboutStatementFloat(now) {
+            if (!aboutStatementFloatActive) return;
+            if (!aboutPanel || !aboutPanel.classList.contains('visible')) {
+                stopAboutStatementFloat();
+                return;
+            }
+            if (!aboutStatementBtn || !aboutStatementPlayfield) {
+                stopAboutStatementFloat();
+                return;
+            }
+            const dt = Math.min(0.05, Math.max(0, (now - aboutStatementFloatLast) / 1000));
+            aboutStatementFloatLast = now;
+
+            const fw = aboutStatementPlayfield.clientWidth;
+            const fh = aboutStatementPlayfield.clientHeight;
+            const bw = aboutStatementBtn.offsetWidth;
+            const bh = aboutStatementBtn.offsetHeight;
+            const maxX = Math.max(0, fw - bw);
+            const maxY = Math.max(0, fh - bh);
+            if (maxX <= 0) aboutStatementVx = 0;
+            if (maxY <= 0) aboutStatementVy = 0;
+
+            let x = parseFloat(aboutStatementBtn.style.left) || 0;
+            let y = parseFloat(aboutStatementBtn.style.top) || 0;
+
+            x += aboutStatementVx * dt;
+            y += aboutStatementVy * dt;
+
+            if (x <= 0) {
+                x = 0;
+                aboutStatementVx *= -1;
+            } else if (x >= maxX) {
+                x = maxX;
+                aboutStatementVx *= -1;
+            }
+            if (y <= 0) {
+                y = 0;
+                aboutStatementVy *= -1;
+            } else if (y >= maxY) {
+                y = maxY;
+                aboutStatementVy *= -1;
+            }
+
+            aboutStatementBtn.style.left = `${x}px`;
+            aboutStatementBtn.style.top = `${y}px`;
+
+            aboutStatementFloatRaf = requestAnimationFrame(tickAboutStatementFloat);
+        }
+
+        function startAboutStatementFloat() {
+            stopAboutStatementFloat();
+            if (!aboutStatementBtn || !aboutStatementPlayfield) return;
+            if (!aboutPanel.classList.contains('visible')) return;
+            const angle = Math.random() * Math.PI * 2;
+            aboutStatementVx = Math.cos(angle) * ABOUT_STATEMENT_FLOAT_SPEED;
+            aboutStatementVy = Math.sin(angle) * ABOUT_STATEMENT_FLOAT_SPEED;
+            aboutStatementFloatLast = performance.now();
+            aboutStatementFloatActive = true;
+            aboutStatementFloatRaf = requestAnimationFrame(tickAboutStatementFloat);
+        }
+
+        function scheduleAboutStatementFloatStart() {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    initAboutStatementFloatPosition();
+                    // Reveal only after new start position is committed to avoid one-frame jump flash.
+                    if (aboutStatementBtn) aboutStatementBtn.style.visibility = 'visible';
+                    startAboutStatementFloat();
+                });
+            });
+        }
+
+        if (aboutStatementPlayfield && typeof ResizeObserver !== 'undefined') {
+            new ResizeObserver(() => {
+                if (!aboutPanel || !aboutPanel.classList.contains('visible')) return;
+                clampAboutStatementBtnToPlayfield();
+            }).observe(aboutStatementPlayfield);
+        }
         const gamesPanel = document.getElementById('games-panel');
+        const gamesBackBtn = document.getElementById('games-back-btn');
         const gamesPanelScroll = document.getElementById('games-panel-scroll');
         const gamesListView = document.getElementById('games-list-view');
         const gamesListRoot = document.getElementById('games-list-root');
         const gamesDetailView = document.getElementById('games-detail-view');
-        const gamesDetailBack = document.getElementById('games-detail-back');
         const gamesDetailBody = document.getElementById('games-detail-body');
+        let gameDetailOpSeq = 0;
+        /** detailFile path → prefetched payload（在首次打开 Works 并完成 loadGamesData 时写入） */
+        const gameDetailPrefetchCache = new Map();
         const contactPanel = document.getElementById('contact-panel');
+        const contactBackBtn = document.getElementById('contact-back-btn');
         const contactPanelScroll = document.getElementById('contact-panel-scroll');
         const contactMethods = document.getElementById('contact-methods');
         const customCursor = document.getElementById('custom-cursor');
@@ -904,29 +1591,75 @@
             entryDesc.textContent = t('desc');
             startBtn.textContent = t('start');
             asciiBtn.textContent = currentLanguage === 'zh' ? '显示 ASCII Art' : 'Show ASCII Art';
-            asciiClose.textContent = currentLanguage === 'zh' ? '关闭' : 'Close';
             langZhBtn.classList.toggle('active', currentLanguage === 'zh');
             langEnBtn.classList.toggle('active', currentLanguage === 'en');
+            if (aboutStatementBtn) {
+                aboutStatementBtn.setAttribute(
+                    'aria-label',
+                    currentLanguage === 'zh' ? '艺术家陈述' : 'Artist statement'
+                );
+            }
+            requestAnimationFrame(() => updateHomeNavOffset());
         }
 
         async function showEntryScreen() {
             try {
-                await ensureAsciiTextLoaded();
-                asciiVisible = true;
-                asciiOverlay.classList.add('visible');
-                renderAsciiFlat();
-                startAsciiAnimation();
+                hideAsciiOverlayAndStopAnimation();
             } catch (error) {
-                console.error('Failed to start ASCII home background:', error);
+                console.error('Entry screen init:', error);
             } finally {
                 loadingScreen.classList.add('hidden');
             }
             entryScreen.classList.add('visible');
+            setHomeNavVisible(true);
+            requestAnimationFrame(() => updateHomeNavOffset());
         }
-        
+
+        function updateHomeNavOffset() {
+            const nav = homeNav;
+            if (!nav) return;
+            document.documentElement.style.setProperty('--home-nav-offset', `${nav.offsetHeight}px`);
+            if (asciiVisible) requestAnimationFrame(() => renderAsciiFlat());
+        }
+
+        function setHomeNavVisible(visible) {
+            if (homeNavArena) homeNavArena.classList.toggle('hidden', !visible);
+            if (homeNav) homeNav.classList.toggle('hidden', !visible);
+        }
+
+        function updateHomeNavSphereFromPointer(clientX, clientY) {
+            if (!homeNavArena) return;
+            if (!entryMainHubSphereTiltActive()) {
+                homeNavArena.style.removeProperty('--sphere-rx');
+                homeNavArena.style.removeProperty('--sphere-ry');
+                return;
+            }
+            if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                homeNavArena.style.removeProperty('--sphere-rx');
+                homeNavArena.style.removeProperty('--sphere-ry');
+                return;
+            }
+            const w = Math.max(1, window.innerWidth);
+            const h = Math.max(1, window.innerHeight);
+            const nx = (clientX / w) * 2 - 1;
+            const ny = (clientY / h) * 2 - 1;
+            const maxRy = 22;
+            const maxRx = 16;
+            homeNavArena.style.setProperty('--sphere-ry', `${nx * maxRy}deg`);
+            homeNavArena.style.setProperty('--sphere-rx', `${-ny * maxRx}deg`);
+        }
+
+        /** 主界面仅显示主导航、无子面板时，才应用菜单球面指针倾斜 */
+        function entryMainHubSphereTiltActive() {
+            if (!entryScreen || !entryScreen.classList.contains('visible')) return false;
+            if (aboutPanel && aboutPanel.classList.contains('visible')) return false;
+            if (gamesPanel && gamesPanel.classList.contains('visible')) return false;
+            if (contactPanel && contactPanel.classList.contains('visible')) return false;
+            return true;
+        }
+
         // Wait for all resources to load, then show language/start shell.
         async function initializeApp() {
-            let gamesPrefetchPromise = Promise.resolve();
             try {
                 // Wait for fonts to load (with timeout)
                 try {
@@ -939,9 +1672,8 @@
                     console.warn('Font loading check failed:', e);
                 }
 
-                // Prefetch games list (games.json + sort years + thumbnails) so opening Games is instant.
-                gamesPrefetchPromise = loadGamesData();
-                
+                // Works：games.json / 列表 / 详情与截图在首次打开 Works 时再加载（带子页三角 loading）
+
                 // Initialize audio context (don't suspend, let it start automatically)
                 try {
                     globalAudioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -963,7 +1695,6 @@
                 if (elapsed < minLoadingDurationMs) {
                     await new Promise(resolve => setTimeout(resolve, minLoadingDurationMs - elapsed));
                 }
-                await gamesPrefetchPromise;
                 resourcesReady = true;
                 await showEntryScreen();
             } catch (error) {
@@ -972,7 +1703,6 @@
                 if (elapsed < minLoadingDurationMs) {
                     await new Promise(resolve => setTimeout(resolve, minLoadingDurationMs - elapsed));
                 }
-                await gamesPrefetchPromise.catch(() => {});
                 resourcesReady = true;
                 await showEntryScreen();
             }
@@ -1047,6 +1777,11 @@
         let leftFinalChoice = '';
         let rightStartDelayUntil = 0;
         let rightUserInput = '';
+        const RIGHT_OPTIONS2_HINT_LINE = "You know that you don't necessarily have to type in something to answer a question.";
+        let rightOptions2Saw1 = false;
+        let rightOptions2Saw2 = false;
+        let rightOptions2Saw3 = false;
+        let rightOptions2HintShown = false;
         let rightClickableLineRect = null;
         let rightClickableLineHovered = false;
         let rightPauseAtIndex = -1;
@@ -1079,6 +1814,7 @@
         document.addEventListener('mousemove', (event) => {
             lastPointerX = event.clientX;
             lastPointerY = event.clientY;
+            updateHomeNavSphereFromPointer(event.clientX, event.clientY);
             // "+" only updates on movement; after click, stay "x" until the pointer moves.
             syncCursorHoverAtPoint(event.clientX, event.clientY);
             if (!customCursor) return;
@@ -1385,8 +2121,11 @@
             if (!asciiVisible) return;
             const ctx = asciiCanvas.getContext('2d');
             const dpr = Math.max(1, window.devicePixelRatio || 1);
-            const w = Math.floor(window.innerWidth * dpr);
-            const h = Math.floor(window.innerHeight * dpr);
+            const rect = asciiOverlay.getBoundingClientRect();
+            const vw = Math.max(1, rect.width);
+            const vh = Math.max(1, rect.height);
+            const w = Math.floor(vw * dpr);
+            const h = Math.floor(vh * dpr);
             // Avoid reallocating backing store every frame (can cause periodic stutter).
             if (asciiCanvasPixelW !== w || asciiCanvasPixelH !== h) {
                 asciiCanvas.width = w;
@@ -1400,9 +2139,6 @@
             ctx.fillStyle = '#000';
             ctx.fillRect(0, 0, w, h);
             ctx.scale(dpr, dpr);
-
-            const vw = window.innerWidth;
-            const vh = window.innerHeight;
             const pad = 8;
             const availW = Math.max(1, vw - pad * 2);
             const availH = Math.max(1, vh - pad * 2);
@@ -1518,6 +2254,38 @@
             }
             asciiFrameLastSwitch = 0;
             asciiMoveLastTime = 0;
+        }
+
+        function hideAsciiOverlayAndStopAnimation() {
+            asciiVisible = false;
+            asciiOverlay.classList.remove('visible');
+            stopAsciiAnimation();
+        }
+
+        /**
+         * @param {{ forceReset?: boolean }} [options]
+         * forceReset: 仅 About 打开时传入 — 位移/帧归零并立刻重画，避免 overlay 已显示却仍一帧旧画布；入口「Show ASCII」不传，已显示则连续播放。
+         */
+        async function startAsciiOverlayAnimation(options = {}) {
+            const forceReset = options.forceReset === true;
+            await ensureAsciiTextLoaded();
+            updateHomeNavOffset();
+            const wasAlreadyShown = asciiVisible;
+            asciiVisible = true;
+            asciiOverlay.classList.add('visible');
+            if (forceReset) {
+                startAsciiAnimation();
+                renderAsciiFlat();
+                return;
+            }
+            requestAnimationFrame(() => {
+                if (!wasAlreadyShown) {
+                    startAsciiAnimation();
+                } else if (!asciiAnimationRaf) {
+                    asciiAnimationRaf = requestAnimationFrame(stepAsciiAnimation);
+                }
+                renderAsciiFlat();
+            });
         }
 
         // 调试/运行时控制：在控制台可改速度，例如 setAsciiFrameInterval(80)
@@ -1857,6 +2625,10 @@
             leftFinalChoice = '';
             rightStartDelayUntil = 0;
             rightUserInput = '';
+            rightOptions2Saw1 = false;
+            rightOptions2Saw2 = false;
+            rightOptions2Saw3 = false;
+            rightOptions2HintShown = false;
             rightClickableLineRect = null;
             rightClickableLineHovered = false;
             rightPauseAtIndex = -1;
@@ -2088,11 +2860,39 @@
             }
         }
 
-        function returnToMainPage() {
+        async function openArtistStatementFromAbout() {
+            if (!resourcesReady) return;
+            stopAboutStatementFloat();
+            await applyLanguage(currentLanguage);
+            hideAsciiOverlayAndStopAnimation();
+            setHomeNavVisible(false);
+            if (aboutPanel) {
+                aboutPanel.classList.remove('visible');
+                aboutPanel.setAttribute('aria-hidden', 'true');
+            }
+            if (gamesPanel) {
+                gamesPanel.classList.remove('visible');
+                gamesPanel.setAttribute('aria-hidden', 'true');
+                showGamesListView();
+            }
+            closeContactPanel();
+            entryScreen.classList.remove('visible');
+            flatStatement.classList.add('visible');
+            runFlatStatement();
+        }
+
+        function showMainPage() {
             stopFlatStatement();
             flatStatement.classList.remove('visible');
             entryScreen.classList.add('visible');
+            setHomeNavVisible(true);
             appStarted = false;
+            hideAsciiOverlayAndStopAnimation();
+            stopAboutStatementFloat();
+            if (aboutPanel) {
+                aboutPanel.classList.remove('visible');
+                aboutPanel.setAttribute('aria-hidden', 'true');
+            }
             if (gamesPanel) {
                 gamesPanel.classList.remove('visible');
                 gamesPanel.setAttribute('aria-hidden', 'true');
@@ -2104,10 +2904,45 @@
             }
         }
 
+        function returnToMainPage() {
+            showMainPage();
+        }
+
+        function returnArtistStatementToAbout() {
+            stopFlatStatement();
+            flatStatement.classList.remove('visible');
+            entryScreen.classList.add('visible');
+            setHomeNavVisible(false);
+            appStarted = false;
+            if (!aboutPanel) return;
+            aboutPanel.classList.add('visible');
+            aboutPanel.setAttribute('aria-hidden', 'false');
+            if (aboutStatementBtn) aboutStatementBtn.style.visibility = 'hidden';
+            resetAboutStatementDodges();
+            closeContactPanel();
+            if (gamesPanel) {
+                gamesPanel.classList.remove('visible');
+                gamesPanel.setAttribute('aria-hidden', 'true');
+                showGamesListView();
+            }
+            requestAnimationFrame(() => {
+                (async () => {
+                    try {
+                        await startAsciiOverlayAnimation({ forceReset: true });
+                    } catch (e) {
+                        console.error(e);
+                    }
+                    scheduleAboutStatementFloatStart();
+                })();
+            });
+        }
+
         function showGamesListView() {
             if (!gamesListView || !gamesDetailView) return;
+            gameDetailOpSeq++;
             gamesListView.hidden = false;
             gamesDetailView.hidden = true;
+            if (gamesPanel) gamesPanel.classList.remove('games-panel--detail');
             if (gamesPanelScroll) gamesPanelScroll.scrollTop = 0;
             scheduleFitGamesOverviewTitles();
         }
@@ -2135,17 +2970,81 @@
             return n != null ? String(n) : '—';
         }
 
-        async function fetchDetailSortYear(detailFile) {
+        async function fetchGameDetailListMeta(detailFile, cacheBust = '') {
             const path = (detailFile || '').trim();
-            if (!path) return null;
+            if (!path) return { sortYear: null, hiddenFromHome: false, detail: null };
             try {
-                const res = await fetch(path, { cache: 'no-store' });
-                if (!res.ok) return null;
+                const url = cacheBust ? `${path}${path.includes('?') ? '&' : '?'}${cacheBust}` : path;
+                const res = await fetch(url, { cache: 'no-store' });
+                if (!res.ok) return { sortYear: null, hiddenFromHome: false, detail: null };
                 const detail = await res.json();
-                return parseDetailYear(detail.year);
+                return {
+                    sortYear: parseDetailYear(detail.year),
+                    hiddenFromHome: detail.hiddenFromHome === true,
+                    detail,
+                };
             } catch {
-                return null;
+                return { sortYear: null, hiddenFromHome: false, detail: null };
             }
+        }
+
+        function prefetchScreenshotUrls(urls) {
+            const list = Array.isArray(urls) ? urls : [];
+            return Promise.all(
+                list.map(
+                    (src) =>
+                        new Promise((resolve) => {
+                            const u = String(src || '').trim();
+                            if (!u) {
+                                resolve();
+                                return;
+                            }
+                            const im = new Image();
+                            im.onload = () => resolve();
+                            im.onerror = () => resolve();
+                            im.src = u;
+                        }),
+                ),
+            );
+        }
+
+        async function warmGameDetailPrefetchCache(visibleRows, cacheBust) {
+            const rows = Array.isArray(visibleRows) ? visibleRows : [];
+            await Promise.all(
+                rows.map(async (row) => {
+                    const game = row && row.game;
+                    if (!game) return;
+                    const detailPath = (game.detailFile || '').trim();
+                    if (!detailPath) return;
+                    let detail = row.detail;
+                    if (!detail) {
+                        try {
+                            const url = cacheBust
+                                ? `${detailPath}${detailPath.includes('?') ? '&' : '?'}${cacheBust}`
+                                : detailPath;
+                            const res = await fetch(url, { cache: 'no-store' });
+                            if (!res.ok) return;
+                            detail = await res.json();
+                        } catch {
+                            return;
+                        }
+                    }
+                    try {
+                        const [detailTextRaw, screenshotUrls] = await Promise.all([
+                            fetchGameDetailTextRaw(game, detailPath, detail),
+                            fetchGameScreenshotUrls(game, detailPath, detail),
+                        ]);
+                        await prefetchScreenshotUrls(screenshotUrls);
+                        gameDetailPrefetchCache.set(detailPath, {
+                            detail,
+                            detailTextRaw,
+                            screenshotUrls,
+                        });
+                    } catch (e) {
+                        console.warn('Game detail prefetch failed:', detailPath, e);
+                    }
+                }),
+            );
         }
 
         function isHttpPlayUrl(url) {
@@ -2157,19 +3056,166 @@
             }
         }
 
+        function gameScreenshotFolder(game, detailPath, detail) {
+            const manual = (detail && typeof detail.screenshotDir === 'string') ? detail.screenshotDir.trim() : '';
+            if (manual) return manual.replace(/\/+$/, '');
+            const raw = (detailPath || '').trim();
+            const base = raw.split('/').pop() || '';
+            const stem = base.replace(/\.json$/i, '') || ((game && game.id) ? String(game.id).trim() : '');
+            return `game-screenshots/${stem}`;
+        }
+
+        function gameDetailTextCandidates(game, detailPath, detail) {
+            const explicit = (detail && typeof detail.detailTextFile === 'string') ? detail.detailTextFile.trim() : '';
+            if (explicit) return [explicit];
+            const folder = gameScreenshotFolder(game, detailPath, detail);
+            return [
+                `${folder}/detail.txt`,
+                `${folder}/description.txt`,
+                `${folder}/about.txt`,
+                `${folder}/text.txt`
+            ];
+        }
+
+        async function fetchGameDetailTextRaw(game, detailPath, detail) {
+            const candidates = gameDetailTextCandidates(game, detailPath, detail);
+            for (let i = 0; i < candidates.length; i++) {
+                const path = (candidates[i] || '').trim();
+                if (!path) continue;
+                try {
+                    const r = await fetch(path, { cache: 'no-store' });
+                    if (!r.ok) continue;
+                    return await r.text();
+                } catch {}
+            }
+            return '';
+        }
+
+        function renderGameDetailText(targetEl, raw) {
+            if (!targetEl) return;
+            targetEl.replaceChildren();
+            const root = document.createElement('div');
+            root.className = 'games-detail-text-root';
+            const lines = String(raw || '').replace(/\r\n/g, '\n').split('\n');
+            let hasNonEmpty = false;
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (line === '') {
+                    const spacer = document.createElement('div');
+                    spacer.className = 'games-detail-text-spacer';
+                    spacer.setAttribute('aria-hidden', 'true');
+                    root.appendChild(spacer);
+                    continue;
+                }
+                hasNonEmpty = true;
+                const row = document.createElement('div');
+                row.className = 'games-detail-text-line';
+                row.textContent = line;
+                root.appendChild(row);
+            }
+            if (!hasNonEmpty) {
+                const row = document.createElement('div');
+                row.className = 'games-detail-text-line';
+                row.textContent = '—';
+                root.appendChild(row);
+            }
+            targetEl.appendChild(root);
+        }
+
+        function probeImageUrlExists(url, timeoutMs = 2500) {
+            return new Promise((resolve) => {
+                const img = new Image();
+                let done = false;
+                const finish = (ok) => {
+                    if (done) return;
+                    done = true;
+                    window.clearTimeout(tid);
+                    img.onload = null;
+                    img.onerror = null;
+                    resolve(ok);
+                };
+                const tid = window.setTimeout(() => finish(false), timeoutMs);
+                img.onload = () => finish(true);
+                img.onerror = () => finish(false);
+                img.src = url;
+            });
+        }
+
+        async function fetchGameScreenshotUrls(game, detailPath, detail) {
+            const folder = gameScreenshotFolder(game, detailPath, detail);
+            if (!folder) return [];
+            const urls = [];
+            const seen = new Set();
+            const addUrl = (u) => {
+                if (!u || seen.has(u)) return;
+                seen.add(u);
+                urls.push(u);
+            };
+
+            // Preferred: manifest in each game's screenshot folder.
+            try {
+                const m = await fetch(`${folder}/manifest.json`, { cache: 'no-store' });
+                if (m.ok) {
+                    const list = await m.json();
+                    if (Array.isArray(list)) {
+                        list.forEach((name) => {
+                            const n = String(name || '').trim();
+                            if (n) addUrl(`${folder}/${n}`);
+                        });
+                        if (urls.length) return urls;
+                    }
+                }
+            } catch {}
+
+            const exts = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
+            const stem =
+                (folder.split('/').pop() || '').trim() ||
+                (((game && game.id) ? String(game.id).trim() : '') || '').replace(/[^\w-]+/g, '');
+
+            // e.g. game-screenshots/qu/qu1.png, qu2.png …（HEAD 在本地静态服务上常不可靠，用 Image 探测）
+            if (stem) {
+                let misses = 0;
+                for (let i = 1; i <= 60 && misses < 12; i++) {
+                    let hit = false;
+                    for (let ei = 0; ei < exts.length; ei++) {
+                        const u = `${folder}/${stem}${i}.${exts[ei]}`;
+                        if (await probeImageUrlExists(u)) {
+                            addUrl(u);
+                            hit = true;
+                            break;
+                        }
+                    }
+                    misses = hit ? 0 : misses + 1;
+                }
+            }
+
+            // Fallback: 常见序号文件名（同样用 Image 探测）
+            const names = [];
+            for (let i = 1; i <= 30; i++) {
+                names.push(String(i), `0${i}`.slice(-2), `00${i}`.slice(-3), `shot-${i}`, `screenshot-${i}`, `img-${i}`);
+            }
+            for (let ni = 0; ni < names.length; ni++) {
+                for (let ei = 0; ei < exts.length; ei++) {
+                    const u = `${folder}/${names[ni]}.${exts[ei]}`;
+                    if (seen.has(u)) continue;
+                    if (await probeImageUrlExists(u)) addUrl(u);
+                }
+            }
+            return urls;
+        }
+
         async function showGameDetail(game) {
             if (!gamesListView || !gamesDetailView || !gamesDetailBody) return;
+            const op = ++gameDetailOpSeq;
             gamesListView.hidden = true;
             gamesDetailView.hidden = false;
+            if (gamesPanel) gamesPanel.classList.add('games-panel--detail');
             if (gamesPanelScroll) gamesPanelScroll.scrollTop = 0;
             gamesDetailBody.replaceChildren();
-            const loading = document.createElement('p');
-            loading.className = 'games-detail-loading';
-            loading.textContent = 'Loading…';
-            gamesDetailBody.appendChild(loading);
 
             const detailPath = (game.detailFile || '').trim();
             if (!detailPath) {
+                if (op !== gameDetailOpSeq) return;
                 gamesDetailBody.replaceChildren();
                 const err = document.createElement('p');
                 err.className = 'games-detail-err';
@@ -2178,87 +3224,127 @@
                 return;
             }
 
+            const cached = gameDetailPrefetchCache.get(detailPath);
             let detail;
-            try {
-                const res = await fetch(detailPath, { cache: 'no-store' });
-                if (!res.ok) throw new Error(String(res.status));
-                detail = await res.json();
-            } catch (e) {
-                console.warn(e);
-                gamesDetailBody.replaceChildren();
-                const err = document.createElement('p');
-                err.className = 'games-detail-err';
-                err.textContent = `Could not load ${detailPath}.`;
-                gamesDetailBody.appendChild(err);
-                return;
+            let detailTextRaw = '';
+            let screenshotUrls = [];
+            if (cached && cached.detail) {
+                detail = cached.detail;
+                detailTextRaw = cached.detailTextRaw != null ? String(cached.detailTextRaw) : '';
+                screenshotUrls = Array.isArray(cached.screenshotUrls) ? cached.screenshotUrls : [];
+            } else {
+                try {
+                    const res = await fetch(detailPath, { cache: 'no-store' });
+                    if (!res.ok) throw new Error(String(res.status));
+                    detail = await res.json();
+                    try {
+                        [detailTextRaw, screenshotUrls] = await Promise.all([
+                            fetchGameDetailTextRaw(game, detailPath, detail),
+                            fetchGameScreenshotUrls(game, detailPath, detail),
+                        ]);
+                    } catch (e) {
+                        console.warn(e);
+                    }
+                } catch (e) {
+                    console.warn(e);
+                    if (op !== gameDetailOpSeq) return;
+                    gamesDetailBody.replaceChildren();
+                    const err = document.createElement('p');
+                    err.className = 'games-detail-err';
+                    err.textContent = `Could not load ${detailPath}.`;
+                    gamesDetailBody.appendChild(err);
+                    return;
+                }
             }
-
-            gamesDetailBody.replaceChildren();
+            if (op !== gameDetailOpSeq) return;
 
             const playUrl = (detail.playUrl || '').trim();
-            if (playUrl && isHttpPlayUrl(playUrl)) {
+            const playable = playUrl && isHttpPlayUrl(playUrl);
+            const header = document.createElement('div');
+            header.className = 'games-detail-header';
+            const titleEl = document.createElement('h2');
+            titleEl.className = 'games-detail-title';
+            titleEl.textContent = (game.title && String(game.title).trim()) || (game.id && String(game.id).trim()) || '—';
+            header.appendChild(titleEl);
+
+            const subline = document.createElement('div');
+            subline.className = 'games-detail-subline';
+
+            const roleLabel = document.createElement('span');
+            roleLabel.className = 'games-detail-subitem';
+            roleLabel.textContent = 'Role/职责';
+            subline.appendChild(roleLabel);
+
+            const yearLabel = document.createElement('span');
+            yearLabel.className = 'games-detail-subitem';
+            yearLabel.textContent = 'Year/年份';
+            subline.appendChild(yearLabel);
+
+            const platformLabel = document.createElement('span');
+            platformLabel.className = 'games-detail-subitem';
+            platformLabel.textContent = 'Platform/平台';
+            subline.appendChild(platformLabel);
+
+            if (playable) {
                 const playA = document.createElement('a');
-                playA.className = 'games-play-link';
+                playA.className = 'games-detail-subitem games-detail-subitem-link';
                 playA.href = playUrl;
                 playA.target = '_blank';
                 playA.rel = 'noopener noreferrer';
-                playA.textContent = 'Click here to play';
-                gamesDetailBody.appendChild(playA);
+                playA.textContent = 'Play/玩';
+                subline.appendChild(playA);
+            } else {
+                const playLabel = document.createElement('span');
+                playLabel.className = 'games-detail-subitem';
+                playLabel.textContent = 'Play/玩';
+                subline.appendChild(playLabel);
             }
 
-            const dl = document.createElement('dl');
-            dl.className = 'games-detail-dl';
+            const roleValue = document.createElement('span');
+            roleValue.className = 'games-detail-subitem games-detail-subitem--value';
+            roleValue.textContent = (detail.role && String(detail.role).trim()) || '—';
+            subline.appendChild(roleValue);
 
-            const yearDt = document.createElement('dt');
-            yearDt.textContent = 'Year:';
-            const yearDd = document.createElement('dd');
-            yearDd.textContent = formatDetailYear(detail.year);
-            dl.appendChild(yearDt);
-            dl.appendChild(yearDd);
+            const yearValue = document.createElement('span');
+            yearValue.className = 'games-detail-subitem games-detail-subitem--value';
+            yearValue.textContent = formatDetailYear(detail.year);
+            subline.appendChild(yearValue);
 
-            const ptDt = document.createElement('dt');
-            ptDt.textContent = 'Playtime:';
-            const ptDd = document.createElement('dd');
-            ptDd.textContent = gamePlaytimeText(detail);
-            dl.appendChild(ptDt);
-            dl.appendChild(ptDd);
+            const platformValue = document.createElement('span');
+            platformValue.className = 'games-detail-subitem games-detail-subitem--value';
+            platformValue.textContent = (detail.platform && String(detail.platform).trim()) || '—';
+            subline.appendChild(platformValue);
 
-            const roleDt = document.createElement('dt');
-            roleDt.textContent = 'Role:';
-            const roleDd = document.createElement('dd');
-            roleDd.textContent = (detail.role && String(detail.role).trim()) || '—';
-            dl.appendChild(roleDt);
-            dl.appendChild(roleDd);
+            const playValueSpacer = document.createElement('span');
+            playValueSpacer.className = 'games-detail-subitem games-detail-subitem--value';
+            playValueSpacer.textContent = '';
+            subline.appendChild(playValueSpacer);
 
-            const platDt = document.createElement('dt');
-            platDt.textContent = 'Platform:';
-            const platDd = document.createElement('dd');
-            platDd.textContent = (detail.platform && String(detail.platform).trim()) || '—';
-            dl.appendChild(platDt);
-            dl.appendChild(platDd);
+            const content = document.createElement('div');
+            content.className = 'games-detail-content';
 
-            gamesDetailBody.appendChild(dl);
+            const descPane = document.createElement('div');
+            descPane.className = 'games-detail-description-pane';
+            content.appendChild(descPane);
 
-            const descStr = detail.description != null ? String(detail.description) : '';
-            if (descStr.trim()) {
-                const descBlock = document.createElement('div');
-                descBlock.className = 'games-detail-description-block';
-                const descTitle = document.createElement('div');
-                descTitle.className = 'games-detail-description-title';
-                descTitle.textContent = 'Something else:';
-                const descText = document.createElement('div');
-                descText.className = 'games-detail-description-text';
-                descText.textContent = descStr;
-                descBlock.appendChild(descTitle);
-                descBlock.appendChild(descText);
-                gamesDetailBody.appendChild(descBlock);
-            }
+            const gallery = document.createElement('div');
+            gallery.className = 'games-detail-gallery';
+            content.appendChild(gallery);
+
+            renderGameDetailText(descPane, detailTextRaw);
+
+            screenshotUrls.forEach((src, idx) => {
+                const img = document.createElement('img');
+                img.src = src;
+                img.alt = `${game.title || game.id || 'game'} screenshot ${idx + 1}`;
+                img.loading = 'eager';
+                img.decoding = 'async';
+                gallery.appendChild(img);
+            });
+
+            if (op !== gameDetailOpSeq) return;
+            gamesDetailBody.replaceChildren(header, subline, content);
         }
-
-        const GAMES_TITLE_FONT_MAX = 38;
-        const GAMES_TITLE_FONT_MIN = 11;
-        const GAMES_TITLE_LINE_HEIGHT = 1.2;
-        const GAMES_TITLE_MAX_LINES = 2;
 
         function shouldFitGameOverviewTitles() {
             return gamesPanel && gamesPanel.classList.contains('visible')
@@ -2270,34 +3356,11 @@
             container.querySelectorAll('.games-row-title').forEach((el) => {
                 el.classList.remove('games-row-title--clamped');
                 el.style.fontSize = '';
-                const text = (el.textContent || '').trim();
-                if (!text) {
-                    el.style.fontSize = `${GAMES_TITLE_FONT_MAX}px`;
-                    return;
-                }
-                el.style.lineHeight = String(GAMES_TITLE_LINE_HEIGHT);
-                let low = GAMES_TITLE_FONT_MIN;
-                let high = GAMES_TITLE_FONT_MAX;
-                let best = GAMES_TITLE_FONT_MIN;
-                while (low <= high) {
-                    const mid = Math.floor((low + high) / 2);
-                    el.style.fontSize = `${mid}px`;
-                    const linePx = mid * GAMES_TITLE_LINE_HEIGHT;
-                    const maxScroll = GAMES_TITLE_MAX_LINES * linePx + 2;
-                    if (el.scrollHeight <= maxScroll) {
-                        best = mid;
-                        low = mid + 1;
-                    } else {
-                        high = mid - 1;
-                    }
-                }
-                el.style.fontSize = `${best}px`;
-                const finalLine = best * GAMES_TITLE_LINE_HEIGHT;
-                if (el.scrollHeight > GAMES_TITLE_MAX_LINES * finalLine + 2) {
-                    el.classList.add('games-row-title--clamped');
-                }
+                el.style.lineHeight = '';
             });
         }
+
+        const GAMES_OVERVIEW_COLUMNS = 3;
 
         function equalizeGameRowHeights(container) {
             if (!container) return;
@@ -2308,14 +3371,14 @@
                 el.style.minHeight = '';
             });
             void container.offsetHeight;
-            for (let i = 0; i < list.length; i += 2) {
-                const pair = list.slice(i, i + 2);
+            for (let i = 0; i < list.length; i += GAMES_OVERVIEW_COLUMNS) {
+                const rowItems = list.slice(i, i + GAMES_OVERVIEW_COLUMNS);
                 let maxH = 0;
-                pair.forEach((el) => {
+                rowItems.forEach((el) => {
                     maxH = Math.max(maxH, el.offsetHeight);
                 });
                 const h = Math.ceil(maxH);
-                pair.forEach((el) => {
+                rowItems.forEach((el) => {
                     el.style.minHeight = `${h}px`;
                 });
             }
@@ -2396,39 +3459,53 @@
                 } else {
                     media.classList.add('games-row-media--empty');
                 }
-                btn.appendChild(titleLine);
+                const titleSlot = document.createElement('div');
+                titleSlot.className = 'games-row-title-slot';
+                titleSlot.appendChild(titleLine);
                 btn.appendChild(media);
+                btn.appendChild(titleSlot);
                 btn.addEventListener('click', () => showGameDetail(game));
                 gamesListRoot.appendChild(btn);
             });
             scheduleFitGamesOverviewTitles();
         }
 
-        async function loadGamesData() {
-            if (gamesDataLoaded) return;
+        async function loadGamesData(forceRefresh = false) {
+            if (gamesDataLoaded && !forceRefresh) return;
+            if (forceRefresh) gameDetailPrefetchCache.clear();
             try {
-                const res = await fetch('games.json', { cache: 'no-store' });
+                const cacheBust = forceRefresh ? `t=${Date.now()}` : '';
+                const gamesJsonUrl = cacheBust ? `games.json?${cacheBust}` : 'games.json';
+                const res = await fetch(gamesJsonUrl, { cache: 'no-store' });
                 if (!res.ok) throw new Error(String(res.status));
                 const data = await res.json();
                 let games = Array.isArray(data) ? data : (data.games || []);
-                const withYears = await Promise.all(
-                    games.map(async (g) => ({
-                        game: g,
-                        sortYear: await fetchDetailSortYear(g.detailFile),
-                    })),
+                const withMeta = await Promise.all(
+                    games.map(async (g) => {
+                        const meta = await fetchGameDetailListMeta(g.detailFile, cacheBust);
+                        return {
+                            game: g,
+                            sortYear: meta.sortYear,
+                            hiddenFromHome: meta.hiddenFromHome,
+                            detail: meta.detail,
+                        };
+                    }),
                 );
-                withYears.sort((a, b) => {
+                const visible = withMeta.filter((x) => !x.hiddenFromHome);
+                visible.sort((a, b) => {
                     const ya = a.sortYear != null ? a.sortYear : Number.NEGATIVE_INFINITY;
                     const yb = b.sortYear != null ? b.sortYear : Number.NEGATIVE_INFINITY;
                     return yb - ya;
                 });
-                games = withYears.map((x) => x.game);
+                games = visible.map((x) => x.game);
                 renderGamesList(games);
                 preloadGameThumbnails(games);
+                await warmGameDetailPrefetchCache(visible, cacheBust);
                 gamesDataLoaded = true;
             } catch (e) {
                 console.warn(e);
                 gamesDataLoaded = false;
+                gameDetailPrefetchCache.clear();
                 if (!gamesListRoot) return;
                 gamesListRoot.replaceChildren();
                 const p = document.createElement('p');
@@ -2440,20 +3517,67 @@
 
         applyLanguage('en');
 
+        function renderAboutTextAsLineBoxes(raw) {
+            if (!aboutTextEl) return;
+            const lines = String(raw || '').replace(/\r\n/g, '\n').split('\n');
+            aboutTextEl.replaceChildren();
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                if (line === '') {
+                    const spacer = document.createElement('div');
+                    spacer.className = 'about-line-spacer';
+                    spacer.setAttribute('aria-hidden', 'true');
+                    aboutTextEl.appendChild(spacer);
+                    continue;
+                }
+                const row = document.createElement('div');
+                row.className = 'about-line';
+                row.textContent = line;
+                aboutTextEl.appendChild(row);
+            }
+        }
+
+        function createSubpageTriangleLoadingOverlay() {
+            const wrap = document.createElement('div');
+            wrap.className = 'subpage-triangle-loading';
+            wrap.setAttribute('aria-busy', 'true');
+            wrap.setAttribute('aria-live', 'polite');
+            const tri = document.createElement('div');
+            tri.className = 'loading-triangle';
+            tri.setAttribute('aria-hidden', 'true');
+            tri.innerHTML =
+                '<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">' +
+                '<polygon points="50,8 8,92 92,92" fill="none" stroke="#fff" stroke-width="6" stroke-linejoin="round" />' +
+                '</svg>';
+            wrap.appendChild(tri);
+            return wrap;
+        }
+
+        let aboutTextCachedRaw = null;
+
         async function loadAboutText() {
+            if (aboutTextCachedRaw !== null) {
+                renderAboutTextAsLineBoxes(aboutTextCachedRaw);
+                return;
+            }
             try {
                 const res = await fetch('about.txt', { cache: 'no-store' });
                 if (!res.ok) throw new Error(String(res.status));
-                aboutTextEl.textContent = await res.text();
+                aboutTextCachedRaw = await res.text();
+                renderAboutTextAsLineBoxes(aboutTextCachedRaw);
             } catch (e) {
                 console.warn(e);
-                aboutTextEl.textContent = 'Could not load about.txt. Add or edit about.txt in the project folder.';
+                renderAboutTextAsLineBoxes(
+                    'Could not load about.txt. Add or edit about.txt in the project folder.'
+                );
             }
         }
 
         let contactConfig = null;
+        let contactConfigInitialized = false;
 
         async function loadContactConfig() {
+            if (contactConfigInitialized) return;
             try {
                 const res = await fetch('contact.json', { cache: 'no-store' });
                 if (!res.ok) throw new Error(String(res.status));
@@ -2469,6 +3593,8 @@
                     wechatText: '',
                     steamUrl: '',
                 };
+            } finally {
+                contactConfigInitialized = true;
             }
         }
 
@@ -2589,13 +3715,10 @@
 
         homeAboutBtn.addEventListener('click', async () => {
             if (!resourcesReady) return;
-            const isOpen = aboutPanel.classList.contains('visible');
-            if (isOpen) {
-                aboutPanel.classList.remove('visible');
-                aboutPanel.setAttribute('aria-hidden', 'true');
-                return;
-            }
-            await loadAboutText();
+            setHomeNavVisible(false);
+            resetAboutStatementDodges();
+            updateHomeNavOffset();
+            if (aboutStatementBtn) aboutStatementBtn.style.visibility = 'hidden';
             aboutPanel.style.zIndex = String(SIDE_PANEL_SWAP_Z);
             aboutPanel.classList.add('visible');
             aboutPanel.setAttribute('aria-hidden', 'false');
@@ -2605,62 +3728,71 @@
                 showGamesListView();
             }
             closeContactPanel();
+            const aboutNeedsLoad = aboutTextCachedRaw === null;
+            const aboutOverlay = aboutNeedsLoad && aboutPanelInner ? createSubpageTriangleLoadingOverlay() : null;
+            if (aboutOverlay) aboutPanelInner.appendChild(aboutOverlay);
+            try {
+                await loadAboutText();
+            } finally {
+                if (aboutOverlay && aboutOverlay.parentNode) aboutOverlay.remove();
+            }
             aboutPanel.style.zIndex = '';
+            requestAnimationFrame(() => {
+                (async () => {
+                    try {
+                        await startAsciiOverlayAnimation({ forceReset: true });
+                    } catch (e) {
+                        console.error(e);
+                        alert(currentLanguage === 'zh' ? '无法加载 me.txt' : 'Failed to load me.txt');
+                    }
+                    scheduleAboutStatementFloatStart();
+                })();
+            });
         });
 
-        homeBioBtn.addEventListener('click', async () => {
-            if (appStarted || !resourcesReady) return;
-            closeContactPanel();
-            aboutPanel.classList.remove('visible');
-            aboutPanel.setAttribute('aria-hidden', 'true');
-            if (gamesPanel) {
-                gamesPanel.classList.remove('visible');
-                gamesPanel.setAttribute('aria-hidden', 'true');
-                showGamesListView();
-            }
-            await loadLanguagePack('en');
-            await loadLanguagePack(currentLanguage);
-            appStarted = true;
-            entryScreen.classList.remove('visible');
-            flatStatement.classList.add('visible');
-            if (document.activeElement && document.activeElement instanceof HTMLElement) {
-                document.activeElement.blur();
-            }
-
-            if (globalAudioContext && globalAudioContext.state === 'suspended') {
-                try {
-                    await globalAudioContext.resume();
-                } catch (e) {
-                    console.warn('Failed to resume audio:', e);
-                }
-            }
-            runFlatStatement();
-        });
         homeGamesBtn.addEventListener('click', async () => {
             if (!resourcesReady || !gamesPanel) return;
-            const isOpen = gamesPanel.classList.contains('visible');
-            if (isOpen) {
-                gamesPanel.classList.remove('visible');
-                gamesPanel.setAttribute('aria-hidden', 'true');
-                showGamesListView();
-                return;
-            }
+            setHomeNavVisible(false);
             showGamesListView();
-            await loadGamesData();
             gamesPanel.style.zIndex = String(SIDE_PANEL_SWAP_Z);
             gamesPanel.classList.add('visible');
             gamesPanel.setAttribute('aria-hidden', 'false');
+            hideAsciiOverlayAndStopAnimation();
             aboutPanel.classList.remove('visible');
             aboutPanel.setAttribute('aria-hidden', 'true');
             closeContactPanel();
+            const gamesNeedsLoad = !gamesDataLoaded;
+            const gamesOverlay = gamesNeedsLoad && gamesPanelScroll ? createSubpageTriangleLoadingOverlay() : null;
+            if (gamesOverlay) gamesPanelScroll.appendChild(gamesOverlay);
+            try {
+                await loadGamesData(false);
+            } finally {
+                if (gamesOverlay && gamesOverlay.parentNode) gamesOverlay.remove();
+            }
             gamesPanel.style.zIndex = '';
             syncFitGamesOverviewIfVisible();
             scheduleFitGamesOverviewTitles();
         });
 
-        if (gamesDetailBack) {
-            gamesDetailBack.addEventListener('click', () => {
-                showGamesListView();
+        if (aboutBackBtn) {
+            aboutBackBtn.addEventListener('click', () => {
+                showMainPage();
+            });
+        }
+
+        if (gamesBackBtn) {
+            gamesBackBtn.addEventListener('click', () => {
+                if (gamesDetailView && !gamesDetailView.hidden) {
+                    showGamesListView();
+                    return;
+                }
+                showMainPage();
+            });
+        }
+
+        if (contactBackBtn) {
+            contactBackBtn.addEventListener('click', () => {
+                showMainPage();
             });
         }
 
@@ -2671,13 +3803,14 @@
             const isOpen = contactPanel.classList.contains('visible');
             if (isOpen) {
                 closeContactPanel();
+                setHomeNavVisible(true);
                 return;
             }
-            await loadContactConfig();
-            resetContactButtonLabels();
+            setHomeNavVisible(false);
             contactPanel.style.zIndex = String(SIDE_PANEL_SWAP_Z);
             contactPanel.classList.add('visible');
             contactPanel.setAttribute('aria-hidden', 'false');
+            hideAsciiOverlayAndStopAnimation();
             aboutPanel.classList.remove('visible');
             aboutPanel.setAttribute('aria-hidden', 'true');
             if (gamesPanel) {
@@ -2685,10 +3818,19 @@
                 gamesPanel.setAttribute('aria-hidden', 'true');
                 showGamesListView();
             }
+            const contactNeedsLoad = !contactConfigInitialized;
+            const contactOverlay = contactNeedsLoad && contactPanelScroll ? createSubpageTriangleLoadingOverlay() : null;
+            if (contactOverlay) contactPanelScroll.appendChild(contactOverlay);
+            try {
+                await loadContactConfig();
+                resetContactButtonLabels();
+            } finally {
+                if (contactOverlay && contactOverlay.parentNode) contactOverlay.remove();
+            }
             contactPanel.style.zIndex = '';
             if (contactPanelScroll) contactPanelScroll.scrollTop = 0;
         });
-        [homeAboutBtn, homeBioBtn, homeGamesBtn, homeContactBtn].forEach((btn) => {
+        [homeAboutBtn, homeGamesBtn, homeContactBtn].forEach((btn) => {
             if (!btn) return;
             btn.addEventListener('click', () => {
                 btn.classList.add('suppress-hover');
@@ -2699,6 +3841,27 @@
             btn.addEventListener('mouseleave', () => {
                 btn.classList.remove('suppress-hover');
             });
+        });
+
+        if (aboutStatementBtn) {
+            aboutStatementBtn.addEventListener('pointerenter', (e) => {
+                tryAboutStatementPointerDodge(e);
+            });
+            aboutStatementBtn.addEventListener('click', () => {
+                aboutStatementBtn.classList.add('suppress-hover');
+                void openArtistStatementFromAbout();
+            });
+            aboutStatementBtn.addEventListener('mousemove', () => {
+                aboutStatementBtn.classList.remove('suppress-hover');
+            });
+            aboutStatementBtn.addEventListener('mouseleave', () => {
+                aboutStatementBtn.classList.remove('suppress-hover');
+            });
+        }
+
+        updateHomeNavOffset();
+        window.addEventListener('resize', () => {
+            updateHomeNavOffset();
         });
 
         function handleLeftChoice(choice) {
@@ -2713,7 +3876,7 @@
                 };
                 if (c === 'yes') {
                     commitInputLine('>yes');
-                    returnToMainPage();
+                    returnArtistStatementToAbout();
                     return;
                 }
                 if (c === 'no') {
@@ -2748,7 +3911,7 @@
                     leftFinalChoice = 'no';
                     flatState.leftActive.push('no');
                     leftPhaseEnd = flatState.leftActive.length;
-                    returnToMainPage();
+                    returnArtistStatementToAbout();
                     return;
                 }
                 return;
@@ -2806,6 +3969,20 @@
             }
         }
 
+        function maybeShowRightOptions2HintFromSubmission(submittedText) {
+            if (rightPhase !== 'options2' || rightOptions2HintShown || !flatState) return;
+            const normalized = String(submittedText || '').trim();
+            if (normalized === '1') rightOptions2Saw1 = true;
+            else if (normalized === '2') rightOptions2Saw2 = true;
+            else if (normalized === '3') rightOptions2Saw3 = true;
+            if (!(rightOptions2Saw1 && rightOptions2Saw2 && rightOptions2Saw3)) return;
+            rightOptions2HintShown = true;
+            const lineIndex = flatState.rightActive.length;
+            flatState.rightActive.push(RIGHT_OPTIONS2_HINT_LINE);
+            rightRenderedLines[lineIndex] = RIGHT_OPTIONS2_HINT_LINE;
+            rightScrollOffset = Number.MAX_SAFE_INTEGER;
+        }
+
         leftFlatCanvas.addEventListener('mousemove', (event) => {
             if (!flatStatement.classList.contains('visible')) return;
             syncCursorHoverAtPoint(event.clientX, event.clientY);
@@ -2827,7 +4004,7 @@
                 y >= leftBackHitRect.y &&
                 y <= leftBackHitRect.y + leftBackHitRect.h
             ) {
-                returnToMainPage();
+                returnArtistStatementToAbout();
             }
         });
         rightFlatCanvas.addEventListener('mousemove', (event) => {
@@ -2872,7 +4049,10 @@
                 if (event.key === 'Enter') {
                     if (rightPhase === 'options1') {
                         handleRightChoice(rightUserInput);
+                    } else if (rightPhase === 'options2') {
+                        maybeShowRightOptions2HintFromSubmission(rightUserInput);
                     }
+                    rightUserInput = '';
                     event.preventDefault();
                     return;
                 }
@@ -2895,9 +4075,9 @@
                     const normalized = leftUserInput.trim().toLowerCase();
                     if (normalized === 'yes' || normalized === 'no') {
                         handleLeftChoice(normalized);
-                        leftUserInput = '';
-                        leftPromptText.textContent = '';
                     }
+                    leftUserInput = '';
+                    leftPromptText.textContent = '';
                 } else if (leftPhase === 'hiringOptions') {
                     handleLeftChoice(leftHiringInput.trim().toLowerCase());
                     leftHiringInput = '';
@@ -2916,21 +4096,11 @@
         asciiBtn.addEventListener('click', async () => {
             if (!resourcesReady) return;
             try {
-                await ensureAsciiTextLoaded();
-                asciiVisible = true;
-                asciiOverlay.classList.add('visible');
-                renderAsciiFlat();
-                startAsciiAnimation();
+                await startAsciiOverlayAnimation();
             } catch (error) {
                 console.error(error);
                 alert(currentLanguage === 'zh' ? '无法加载 me.txt' : 'Failed to load me.txt');
             }
-        });
-
-        asciiClose.addEventListener('click', () => {
-            asciiVisible = false;
-            asciiOverlay.classList.remove('visible');
-            stopAsciiAnimation();
         });
 
         // Start initialization immediately (script runs after DOM is ready)
