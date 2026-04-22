@@ -1545,10 +1545,22 @@
         // External language packs.
         const languagePacks = { en: null, zh: null };
 
+        const DEFAULT_FETCH_TIMEOUT_MS = 14000;
+
+        async function fetchWithTimeout(resource, init = {}, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
+            const controller = new AbortController();
+            const tid = window.setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                return await fetch(resource, { ...init, signal: controller.signal });
+            } finally {
+                window.clearTimeout(tid);
+            }
+        }
+
         async function loadLanguagePack(lang) {
             if (languagePacks[lang]) return languagePacks[lang];
             try {
-                const response = await fetch(`i18n/artist-statement.${lang}.json`);
+                const response = await fetchWithTimeout(`i18n/artist-statement.${lang}.json`, {}, DEFAULT_FETCH_TIMEOUT_MS);
                 if (!response.ok) throw new Error(`lang ${lang} load failed: ${response.status}`);
                 const json = await response.json();
                 languagePacks[lang] = json;
@@ -1881,9 +1893,9 @@
             refreshCustomCursorState();
         }
 
-        async function fetchTextIfExists(path) {
+        async function fetchTextIfExists(path, timeoutMs = DEFAULT_FETCH_TIMEOUT_MS) {
             try {
-                const response = await fetch(path, { cache: 'no-store' });
+                const response = await fetchWithTimeout(path, { cache: 'no-store' }, timeoutMs);
                 if (!response.ok) return null;
                 return await response.text();
             } catch (_) {
@@ -2009,24 +2021,19 @@
                 if (Array.isArray(manifest.patterns) && manifest.patterns.every(v => typeof v === 'string')) {
                     asciiAnimationConfig.patterns = manifest.patterns;
                 }
-                const loaded = [];
-                for (const file of files) {
-                    if (typeof file !== 'string' || !file.trim()) continue;
-                    const text = await fetchTextIfExists(file.trim());
-                    if (text !== null) loaded.push(text);
-                }
-                const loadedSecondary = [];
-                for (const file of secondaryFiles) {
-                    if (typeof file !== 'string' || !file.trim()) continue;
-                    const text = await fetchTextIfExists(file.trim());
-                    if (text !== null) loadedSecondary.push(text);
-                }
-                const loadedTertiary = [];
-                for (const file of tertiaryFiles) {
-                    if (typeof file !== 'string' || !file.trim()) continue;
-                    const text = await fetchTextIfExists(file.trim());
-                    if (text !== null) loadedTertiary.push(text);
-                }
+                const loadFrameList = async (fileList) => {
+                    const texts = await Promise.all(
+                        fileList.map((file) =>
+                            typeof file === 'string' && file.trim()
+                                ? fetchTextIfExists(file.trim())
+                                : Promise.resolve(null),
+                        ),
+                    );
+                    return texts.filter((t) => t !== null);
+                };
+                const loaded = await loadFrameList(files);
+                const loadedSecondary = await loadFrameList(secondaryFiles);
+                const loadedTertiary = await loadFrameList(tertiaryFiles);
                 asciiSecondaryFrames = loadedSecondary;
                 asciiTertiaryFrames = loadedTertiary;
                 return loaded.length > 0 ? loaded : null;
@@ -2975,7 +2982,7 @@
             if (!path) return { sortYear: null, hiddenFromHome: false, detail: null };
             try {
                 const url = cacheBust ? `${path}${path.includes('?') ? '&' : '?'}${cacheBust}` : path;
-                const res = await fetch(url, { cache: 'no-store' });
+                const res = await fetchWithTimeout(url, { cache: 'no-store' }, 12000);
                 if (!res.ok) return { sortYear: null, hiddenFromHome: false, detail: null };
                 const detail = await res.json();
                 return {
@@ -3022,7 +3029,7 @@
                             const url = cacheBust
                                 ? `${detailPath}${detailPath.includes('?') ? '&' : '?'}${cacheBust}`
                                 : detailPath;
-                            const res = await fetch(url, { cache: 'no-store' });
+                            const res = await fetchWithTimeout(url, { cache: 'no-store' }, 12000);
                             if (!res.ok) return;
                             detail = await res.json();
                         } catch {
@@ -3083,7 +3090,7 @@
                 const path = (candidates[i] || '').trim();
                 if (!path) continue;
                 try {
-                    const r = await fetch(path, { cache: 'no-store' });
+                    const r = await fetchWithTimeout(path, { cache: 'no-store' }, 10000);
                     if (!r.ok) continue;
                     return await r.text();
                 } catch {}
@@ -3122,7 +3129,7 @@
             targetEl.appendChild(root);
         }
 
-        function probeImageUrlExists(url, timeoutMs = 2500) {
+        function probeImageUrlExists(url, timeoutMs = 1000) {
             return new Promise((resolve) => {
                 const img = new Image();
                 let done = false;
@@ -3154,7 +3161,7 @@
 
             // Preferred: manifest in each game's screenshot folder.
             try {
-                const m = await fetch(`${folder}/manifest.json`, { cache: 'no-store' });
+                const m = await fetchWithTimeout(`${folder}/manifest.json`, { cache: 'no-store' }, 8000);
                 if (m.ok) {
                     const list = await m.json();
                     if (Array.isArray(list)) {
@@ -3189,18 +3196,6 @@
                 }
             }
 
-            // Fallback: 常见序号文件名（同样用 Image 探测）
-            const names = [];
-            for (let i = 1; i <= 30; i++) {
-                names.push(String(i), `0${i}`.slice(-2), `00${i}`.slice(-3), `shot-${i}`, `screenshot-${i}`, `img-${i}`);
-            }
-            for (let ni = 0; ni < names.length; ni++) {
-                for (let ei = 0; ei < exts.length; ei++) {
-                    const u = `${folder}/${names[ni]}.${exts[ei]}`;
-                    if (seen.has(u)) continue;
-                    if (await probeImageUrlExists(u)) addUrl(u);
-                }
-            }
             return urls;
         }
 
@@ -3234,7 +3229,7 @@
                 screenshotUrls = Array.isArray(cached.screenshotUrls) ? cached.screenshotUrls : [];
             } else {
                 try {
-                    const res = await fetch(detailPath, { cache: 'no-store' });
+                    const res = await fetchWithTimeout(detailPath, { cache: 'no-store' }, 12000);
                     if (!res.ok) throw new Error(String(res.status));
                     detail = await res.json();
                     try {
@@ -3476,7 +3471,7 @@
             try {
                 const cacheBust = forceRefresh ? `t=${Date.now()}` : '';
                 const gamesJsonUrl = cacheBust ? `games.json?${cacheBust}` : 'games.json';
-                const res = await fetch(gamesJsonUrl, { cache: 'no-store' });
+                const res = await fetchWithTimeout(gamesJsonUrl, { cache: 'no-store' }, 12000);
                 if (!res.ok) throw new Error(String(res.status));
                 const data = await res.json();
                 let games = Array.isArray(data) ? data : (data.games || []);
@@ -3500,8 +3495,10 @@
                 games = visible.map((x) => x.game);
                 renderGamesList(games);
                 preloadGameThumbnails(games);
-                await warmGameDetailPrefetchCache(visible, cacheBust);
                 gamesDataLoaded = true;
+                void warmGameDetailPrefetchCache(visible, cacheBust).catch((err) =>
+                    console.warn('Game detail prefetch:', err),
+                );
             } catch (e) {
                 console.warn(e);
                 gamesDataLoaded = false;
@@ -3561,7 +3558,7 @@
                 return;
             }
             try {
-                const res = await fetch('about.txt', { cache: 'no-store' });
+                const res = await fetchWithTimeout('about.txt', { cache: 'no-store' }, 12000);
                 if (!res.ok) throw new Error(String(res.status));
                 aboutTextCachedRaw = await res.text();
                 renderAboutTextAsLineBoxes(aboutTextCachedRaw);
@@ -3579,7 +3576,7 @@
         async function loadContactConfig() {
             if (contactConfigInitialized) return;
             try {
-                const res = await fetch('contact.json', { cache: 'no-store' });
+                const res = await fetchWithTimeout('contact.json', { cache: 'no-store' }, 12000);
                 if (!res.ok) throw new Error(String(res.status));
                 contactConfig = await res.json();
             } catch (e) {
