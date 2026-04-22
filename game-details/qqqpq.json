@@ -4,5 +4,11 @@
   "playtime": "about 30 minutes",
   "role": "Design, programming",
   "platform": "web",
+  "screenshots": [
+    "game-screenshots/qqqpq/qqqpq1.png",
+    "game-screenshots/qqqpq/qqqpq2.png",
+    "game-screenshots/qqqpq/qqqpq3.png",
+    "game-screenshots/qqqpq/qqqpq4.png"
+  ],
   "hiddenFromHome": false
 }

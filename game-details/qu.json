@@ -4,5 +4,13 @@
   "playtime": "about 10 minutes",
   "role": "Everything",
   "platform": "web",
+  "screenshots": [
+    "game-screenshots/qu/qu1.png",
+    "game-screenshots/qu/qu2.png",
+    "game-screenshots/qu/qu3.png",
+    "game-screenshots/qu/qu4.png",
+    "game-screenshots/qu/qu5.png",
+    "game-screenshots/qu/qu6.png"
+  ],
   "hiddenFromHome": false
 }

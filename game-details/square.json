@@ -4,5 +4,13 @@
   "playtime": "about 10 minutes",
   "role": "Design, programming",
   "platform": "web",
+  "screenshots": [
+    "game-screenshots/square/square1.png",
+    "game-screenshots/square/square2.png",
+    "game-screenshots/square/square3.png",
+    "game-screenshots/square/square4.png",
+    "game-screenshots/square/square5.png",
+    "game-screenshots/square/square6.png"
+  ],
   "hiddenFromHome": false
 }

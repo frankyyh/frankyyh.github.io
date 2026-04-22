@@ -4,5 +4,12 @@
   "playtime": "based on your skill level I guess?",
   "role": "Everything",
   "platform": "web",
+  "screenshots": [
+    "game-screenshots/jdd/jdd1.png",
+    "game-screenshots/jdd/jdd2.png",
+    "game-screenshots/jdd/jdd3.png",
+    "game-screenshots/jdd/jdd4.png",
+    "game-screenshots/jdd/jdd5.png"
+  ],
   "hiddenFromHome": false
 }

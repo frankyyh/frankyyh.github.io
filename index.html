@@ -3139,9 +3139,30 @@
             });
         }
 
+        function normalizeScreenshotUrl(entry) {
+            const s = String(entry || '').trim();
+            if (!s) return '';
+            if (/^https?:\/\//i.test(s)) return s;
+            return s;
+        }
+
         async function fetchGameScreenshotUrls(game, detailPath, detail) {
             const folder = gameScreenshotFolder(game, detailPath, detail);
             if (!folder) return [];
+
+            /* 显式列表：零探测、详情页只发一次请求（避免 Image 探测 + <img> 各下载一遍） */
+            if (detail && Array.isArray(detail.screenshots)) {
+                const out = [];
+                const seen = new Set();
+                for (const item of detail.screenshots) {
+                    const u = normalizeScreenshotUrl(item);
+                    if (!u || seen.has(u)) continue;
+                    seen.add(u);
+                    out.push(u);
+                }
+                return out;
+            }
+
             const urls = [];
             const seen = new Set();
             const addUrl = (u) => {
@@ -3165,25 +3186,21 @@
                 }
             } catch {}
 
-            const exts = ['png', 'jpg', 'jpeg', 'webp', 'gif'];
             const stem =
                 (folder.split('/').pop() || '').trim() ||
                 (((game && game.id) ? String(game.id).trim() : '') || '').replace(/[^\w-]+/g, '');
 
-            // e.g. game-screenshots/qu/qu1.png, qu2.png …（HEAD 在本地静态服务上常不可靠，用 Image 探测）
+            /* 回退：只探测 .png，短超时、少空档；不再对同一序号试 5 种扩展名（在 GitHub Pages 上会极慢） */
             if (stem) {
                 let misses = 0;
-                for (let i = 1; i <= 60 && misses < 12; i++) {
-                    let hit = false;
-                    for (let ei = 0; ei < exts.length; ei++) {
-                        const u = `${folder}/${stem}${i}.${exts[ei]}`;
-                        if (await probeImageUrlExists(u)) {
-                            addUrl(u);
-                            hit = true;
-                            break;
-                        }
+                for (let i = 1; i <= 40 && misses < 4; i++) {
+                    const u = `${folder}/${stem}${i}.png`;
+                    if (await probeImageUrlExists(u, 700)) {
+                        addUrl(u);
+                        misses = 0;
+                    } else {
+                        misses += 1;
                     }
-                    misses = hit ? 0 : misses + 1;
                 }
             }
 
@@ -3210,7 +3227,7 @@
             return wrap;
         }
 
-        function createGalleryImageSlot(src, alt) {
+        function createGalleryImageSlot(src, alt, useLazyLoad) {
             const wrap = document.createElement('div');
             wrap.className = 'games-detail-gallery-item';
             const loadLayer = document.createElement('div');
@@ -3224,6 +3241,7 @@
             img.className = 'games-detail-gallery-img';
             img.alt = alt;
             img.decoding = 'async';
+            if (useLazyLoad) img.loading = 'lazy';
             const done = () => {
                 if (loadLayer.isConnected) loadLayer.remove();
                 img.classList.add('games-detail-gallery-img--ready');
@@ -3381,7 +3399,7 @@
                 urls.forEach((src, idx) => {
                     const s = String(src || '').trim();
                     if (!s) return;
-                    gallery.appendChild(createGalleryImageSlot(s, `${baseAlt} screenshot ${idx + 1}`));
+                    gallery.appendChild(createGalleryImageSlot(s, `${baseAlt} screenshot ${idx + 1}`, idx >= 2));
                 });
             })();
         }
