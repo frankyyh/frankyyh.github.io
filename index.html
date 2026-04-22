@@ -3120,25 +3120,6 @@
             targetEl.appendChild(root);
         }
 
-        function probeImageUrlExists(url, timeoutMs = 1000) {
-            return new Promise((resolve) => {
-                const img = new Image();
-                let done = false;
-                const finish = (ok) => {
-                    if (done) return;
-                    done = true;
-                    window.clearTimeout(tid);
-                    img.onload = null;
-                    img.onerror = null;
-                    resolve(ok);
-                };
-                const tid = window.setTimeout(() => finish(false), timeoutMs);
-                img.onload = () => finish(true);
-                img.onerror = () => finish(false);
-                img.src = url;
-            });
-        }
-
         function normalizeScreenshotUrl(entry) {
             const s = String(entry || '').trim();
             if (!s) return '';
@@ -3150,7 +3131,11 @@
             const folder = gameScreenshotFolder(game, detailPath, detail);
             if (!folder) return [];
 
-            /* 显式列表：零探测、详情页只发一次请求（避免 Image 探测 + <img> 各下载一遍） */
+            /*
+             * 截图 URL 只来自声明式数据，不做运行时探测：
+             * 1) detail.screenshots — 相对站点根或 https 绝对地址
+             * 2) 否则尝试 game-screenshots/<stem>/manifest.json（文件名数组）
+             */
             if (detail && Array.isArray(detail.screenshots)) {
                 const out = [];
                 const seen = new Set();
@@ -3185,24 +3170,6 @@
                     }
                 }
             } catch {}
-
-            const stem =
-                (folder.split('/').pop() || '').trim() ||
-                (((game && game.id) ? String(game.id).trim() : '') || '').replace(/[^\w-]+/g, '');
-
-            /* 回退：只探测 .png，短超时、少空档；不再对同一序号试 5 种扩展名（在 GitHub Pages 上会极慢） */
-            if (stem) {
-                let misses = 0;
-                for (let i = 1; i <= 40 && misses < 4; i++) {
-                    const u = `${folder}/${stem}${i}.png`;
-                    if (await probeImageUrlExists(u, 700)) {
-                        addUrl(u);
-                        misses = 0;
-                    } else {
-                        misses += 1;
-                    }
-                }
-            }
 
             return urls;
         }
