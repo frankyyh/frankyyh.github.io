@@ -1052,11 +1052,61 @@
             height: 0;
         }
 
-        .games-detail-gallery img {
+        .games-detail-gallery-pending {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex: 1 1 auto;
+            min-height: min(36vh, 260px);
+            box-sizing: border-box;
+        }
+
+        .games-detail-gallery-pending-tri {
+            width: min(22vmin, 140px);
+            height: min(22vmin, 140px);
+        }
+
+        .games-detail-gallery-item {
+            position: relative;
+            width: 100%;
+            min-height: min(24vmin, 160px);
+            flex: 0 0 auto;
+        }
+
+        .games-detail-gallery-img-loading {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            pointer-events: none;
+        }
+
+        .games-detail-gallery-item .loading-triangle {
+            width: min(16vmin, 100px);
+            height: min(16vmin, 100px);
+        }
+
+        .games-detail-gallery-item img.games-detail-gallery-img {
             display: block;
             width: 100%;
             height: auto;
             object-fit: contain;
+            opacity: 0;
+            transition: opacity 0.22s ease;
+        }
+
+        .games-detail-gallery-item img.games-detail-gallery-img--ready {
+            opacity: 1;
+        }
+
+        .games-detail-gallery-empty {
+            margin: 0;
+            font-size: 28px;
+            line-height: 1.3;
+            opacity: 0.65;
         }
 
         #games-detail-view {
@@ -1526,8 +1576,6 @@
         const gamesDetailView = document.getElementById('games-detail-view');
         const gamesDetailBody = document.getElementById('games-detail-body');
         let gameDetailOpSeq = 0;
-        /** detailFile path → prefetched payload（在首次打开 Works 并完成 loadGamesData 时写入） */
-        const gameDetailPrefetchCache = new Map();
         const contactPanel = document.getElementById('contact-panel');
         const contactBackBtn = document.getElementById('contact-back-btn');
         const contactPanelScroll = document.getElementById('contact-panel-scroll');
@@ -2932,16 +2980,18 @@
                 gamesPanel.setAttribute('aria-hidden', 'true');
                 showGamesListView();
             }
-            requestAnimationFrame(() => {
-                (async () => {
-                    try {
-                        await startAsciiOverlayAnimation({ forceReset: true });
-                    } catch (e) {
-                        console.error(e);
-                    }
-                    scheduleAboutStatementFloatStart();
-                })();
-            });
+            const aboutReturnOverlay = aboutPanelInner ? createSubpageTriangleLoadingOverlay() : null;
+            if (aboutReturnOverlay) aboutPanelInner.appendChild(aboutReturnOverlay);
+            void (async () => {
+                try {
+                    await startAsciiOverlayAnimation({ forceReset: true });
+                } catch (e) {
+                    console.error(e);
+                } finally {
+                    if (aboutReturnOverlay && aboutReturnOverlay.parentNode) aboutReturnOverlay.remove();
+                }
+                scheduleAboutStatementFloatStart();
+            })();
         }
 
         function showGamesListView() {
@@ -2993,65 +3043,6 @@
             } catch {
                 return { sortYear: null, hiddenFromHome: false, detail: null };
             }
-        }
-
-        function prefetchScreenshotUrls(urls) {
-            const list = Array.isArray(urls) ? urls : [];
-            return Promise.all(
-                list.map(
-                    (src) =>
-                        new Promise((resolve) => {
-                            const u = String(src || '').trim();
-                            if (!u) {
-                                resolve();
-                                return;
-                            }
-                            const im = new Image();
-                            im.onload = () => resolve();
-                            im.onerror = () => resolve();
-                            im.src = u;
-                        }),
-                ),
-            );
-        }
-
-        async function warmGameDetailPrefetchCache(visibleRows, cacheBust) {
-            const rows = Array.isArray(visibleRows) ? visibleRows : [];
-            await Promise.all(
-                rows.map(async (row) => {
-                    const game = row && row.game;
-                    if (!game) return;
-                    const detailPath = (game.detailFile || '').trim();
-                    if (!detailPath) return;
-                    let detail = row.detail;
-                    if (!detail) {
-                        try {
-                            const url = cacheBust
-                                ? `${detailPath}${detailPath.includes('?') ? '&' : '?'}${cacheBust}`
-                                : detailPath;
-                            const res = await fetchWithTimeout(url, { cache: 'no-store' }, 12000);
-                            if (!res.ok) return;
-                            detail = await res.json();
-                        } catch {
-                            return;
-                        }
-                    }
-                    try {
-                        const [detailTextRaw, screenshotUrls] = await Promise.all([
-                            fetchGameDetailTextRaw(game, detailPath, detail),
-                            fetchGameScreenshotUrls(game, detailPath, detail),
-                        ]);
-                        await prefetchScreenshotUrls(screenshotUrls);
-                        gameDetailPrefetchCache.set(detailPath, {
-                            detail,
-                            detailTextRaw,
-                            screenshotUrls,
-                        });
-                    } catch (e) {
-                        console.warn('Game detail prefetch failed:', detailPath, e);
-                    }
-                }),
-            );
         }
 
         function isHttpPlayUrl(url) {
@@ -3199,6 +3190,52 @@
             return urls;
         }
 
+        function gamesDetailTriangleSvgHtml() {
+            return (
+                '<svg viewBox="0 0 100 100" aria-hidden="true" focusable="false">' +
+                '<polygon points="50,8 8,92 92,92" fill="none" stroke="#fff" stroke-width="6" stroke-linejoin="round" />' +
+                '</svg>'
+            );
+        }
+
+        function createGalleryUrlsPending() {
+            const wrap = document.createElement('div');
+            wrap.className = 'games-detail-gallery-pending';
+            wrap.setAttribute('aria-busy', 'true');
+            const tri = document.createElement('div');
+            tri.className = 'loading-triangle games-detail-gallery-pending-tri';
+            tri.setAttribute('aria-hidden', 'true');
+            tri.innerHTML = gamesDetailTriangleSvgHtml();
+            wrap.appendChild(tri);
+            return wrap;
+        }
+
+        function createGalleryImageSlot(src, alt) {
+            const wrap = document.createElement('div');
+            wrap.className = 'games-detail-gallery-item';
+            const loadLayer = document.createElement('div');
+            loadLayer.className = 'games-detail-gallery-img-loading';
+            const tri = document.createElement('div');
+            tri.className = 'loading-triangle';
+            tri.setAttribute('aria-hidden', 'true');
+            tri.innerHTML = gamesDetailTriangleSvgHtml();
+            loadLayer.appendChild(tri);
+            const img = document.createElement('img');
+            img.className = 'games-detail-gallery-img';
+            img.alt = alt;
+            img.decoding = 'async';
+            const done = () => {
+                if (loadLayer.isConnected) loadLayer.remove();
+                img.classList.add('games-detail-gallery-img--ready');
+            };
+            img.onload = done;
+            img.onerror = done;
+            img.src = src;
+            wrap.appendChild(loadLayer);
+            wrap.appendChild(img);
+            return wrap;
+        }
+
         async function showGameDetail(game) {
             if (!gamesListView || !gamesDetailView || !gamesDetailBody) return;
             const op = ++gameDetailOpSeq;
@@ -3219,37 +3256,28 @@
                 return;
             }
 
-            const cached = gameDetailPrefetchCache.get(detailPath);
             let detail;
+            try {
+                const res = await fetchWithTimeout(detailPath, { cache: 'no-store' }, 12000);
+                if (!res.ok) throw new Error(String(res.status));
+                detail = await res.json();
+            } catch (e) {
+                console.warn(e);
+                if (op !== gameDetailOpSeq) return;
+                gamesDetailBody.replaceChildren();
+                const err = document.createElement('p');
+                err.className = 'games-detail-err';
+                err.textContent = `Could not load ${detailPath}.`;
+                gamesDetailBody.appendChild(err);
+                return;
+            }
+            if (op !== gameDetailOpSeq) return;
+
             let detailTextRaw = '';
-            let screenshotUrls = [];
-            if (cached && cached.detail) {
-                detail = cached.detail;
-                detailTextRaw = cached.detailTextRaw != null ? String(cached.detailTextRaw) : '';
-                screenshotUrls = Array.isArray(cached.screenshotUrls) ? cached.screenshotUrls : [];
-            } else {
-                try {
-                    const res = await fetchWithTimeout(detailPath, { cache: 'no-store' }, 12000);
-                    if (!res.ok) throw new Error(String(res.status));
-                    detail = await res.json();
-                    try {
-                        [detailTextRaw, screenshotUrls] = await Promise.all([
-                            fetchGameDetailTextRaw(game, detailPath, detail),
-                            fetchGameScreenshotUrls(game, detailPath, detail),
-                        ]);
-                    } catch (e) {
-                        console.warn(e);
-                    }
-                } catch (e) {
-                    console.warn(e);
-                    if (op !== gameDetailOpSeq) return;
-                    gamesDetailBody.replaceChildren();
-                    const err = document.createElement('p');
-                    err.className = 'games-detail-err';
-                    err.textContent = `Could not load ${detailPath}.`;
-                    gamesDetailBody.appendChild(err);
-                    return;
-                }
+            try {
+                detailTextRaw = await fetchGameDetailTextRaw(game, detailPath, detail);
+            } catch (e) {
+                console.warn(e);
             }
             if (op !== gameDetailOpSeq) return;
 
@@ -3320,25 +3348,42 @@
 
             const descPane = document.createElement('div');
             descPane.className = 'games-detail-description-pane';
-            content.appendChild(descPane);
 
             const gallery = document.createElement('div');
             gallery.className = 'games-detail-gallery';
+            gallery.appendChild(createGalleryUrlsPending());
+
+            content.appendChild(descPane);
             content.appendChild(gallery);
 
             renderGameDetailText(descPane, detailTextRaw);
 
-            screenshotUrls.forEach((src, idx) => {
-                const img = document.createElement('img');
-                img.src = src;
-                img.alt = `${game.title || game.id || 'game'} screenshot ${idx + 1}`;
-                img.loading = 'eager';
-                img.decoding = 'async';
-                gallery.appendChild(img);
-            });
-
             if (op !== gameDetailOpSeq) return;
             gamesDetailBody.replaceChildren(header, subline, content);
+
+            const baseAlt = (game.title && String(game.title).trim()) || (game.id && String(game.id).trim()) || 'game';
+            void (async () => {
+                let urls = [];
+                try {
+                    urls = await fetchGameScreenshotUrls(game, detailPath, detail);
+                } catch (e) {
+                    console.warn(e);
+                }
+                if (op !== gameDetailOpSeq) return;
+                gallery.replaceChildren();
+                if (!urls.length) {
+                    const empty = document.createElement('p');
+                    empty.className = 'games-detail-gallery-empty';
+                    empty.textContent = '—';
+                    gallery.appendChild(empty);
+                    return;
+                }
+                urls.forEach((src, idx) => {
+                    const s = String(src || '').trim();
+                    if (!s) return;
+                    gallery.appendChild(createGalleryImageSlot(s, `${baseAlt} screenshot ${idx + 1}`));
+                });
+            })();
         }
 
         function shouldFitGameOverviewTitles() {
@@ -3467,7 +3512,6 @@
 
         async function loadGamesData(forceRefresh = false) {
             if (gamesDataLoaded && !forceRefresh) return;
-            if (forceRefresh) gameDetailPrefetchCache.clear();
             try {
                 const cacheBust = forceRefresh ? `t=${Date.now()}` : '';
                 const gamesJsonUrl = cacheBust ? `games.json?${cacheBust}` : 'games.json';
@@ -3496,13 +3540,9 @@
                 renderGamesList(games);
                 preloadGameThumbnails(games);
                 gamesDataLoaded = true;
-                void warmGameDetailPrefetchCache(visible, cacheBust).catch((err) =>
-                    console.warn('Game detail prefetch:', err),
-                );
             } catch (e) {
                 console.warn(e);
                 gamesDataLoaded = false;
-                gameDetailPrefetchCache.clear();
                 if (!gamesListRoot) return;
                 gamesListRoot.replaceChildren();
                 const p = document.createElement('p');
@@ -3725,26 +3765,19 @@
                 showGamesListView();
             }
             closeContactPanel();
-            const aboutNeedsLoad = aboutTextCachedRaw === null;
-            const aboutOverlay = aboutNeedsLoad && aboutPanelInner ? createSubpageTriangleLoadingOverlay() : null;
+            const aboutOverlay = aboutPanelInner ? createSubpageTriangleLoadingOverlay() : null;
             if (aboutOverlay) aboutPanelInner.appendChild(aboutOverlay);
             try {
                 await loadAboutText();
+                await startAsciiOverlayAnimation({ forceReset: true });
+            } catch (e) {
+                console.error(e);
+                alert(currentLanguage === 'zh' ? '无法加载 me.txt' : 'Failed to load me.txt');
             } finally {
                 if (aboutOverlay && aboutOverlay.parentNode) aboutOverlay.remove();
             }
             aboutPanel.style.zIndex = '';
-            requestAnimationFrame(() => {
-                (async () => {
-                    try {
-                        await startAsciiOverlayAnimation({ forceReset: true });
-                    } catch (e) {
-                        console.error(e);
-                        alert(currentLanguage === 'zh' ? '无法加载 me.txt' : 'Failed to load me.txt');
-                    }
-                    scheduleAboutStatementFloatStart();
-                })();
-            });
+            scheduleAboutStatementFloatStart();
         });
 
         homeGamesBtn.addEventListener('click', async () => {
